@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -92,6 +93,52 @@ func firstLine(s string) string {
 		return strings.TrimSpace(s[:i])
 	}
 	return s
+}
+
+// gitOriginRemote returns the working directory's git origin remote URL by
+// shelling to `git remote get-url origin`. A missing remote (or no repo) is an
+// error, which callers treat as "no configured repo".
+func gitOriginRemote() (string, error) {
+	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "", fmt.Errorf("git origin remote: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// repoFromRemote extracts an "owner/name" repo identity from a git remote URL,
+// handling the common GitHub forms:
+//
+//	git@github.com:owner/name.git
+//	https://github.com/owner/name.git
+//	ssh://git@github.com/owner/name
+//
+// It returns ok=false for URLs it cannot confidently parse.
+func repoFromRemote(raw string) (string, bool) {
+	s := strings.TrimSpace(raw)
+	s = strings.TrimSuffix(s, ".git")
+	// scp-like syntax: git@host:owner/name
+	if i := strings.Index(s, ":"); i >= 0 && !strings.Contains(s[:i], "/") {
+		s = s[i+1:]
+	} else {
+		// URL syntax: strip scheme and host.
+		if i := strings.Index(s, "://"); i >= 0 {
+			s = s[i+3:]
+		}
+		if at := strings.Index(s, "@"); at >= 0 {
+			s = s[at+1:]
+		}
+		if slash := strings.Index(s, "/"); slash >= 0 {
+			s = s[slash+1:]
+		}
+	}
+	parts := strings.Split(strings.Trim(s, "/"), "/")
+	if len(parts) < 2 || parts[len(parts)-2] == "" || parts[len(parts)-1] == "" {
+		return "", false
+	}
+	owner := parts[len(parts)-2]
+	name := parts[len(parts)-1]
+	return owner + "/" + name, true
 }
 
 // telegramResult carries the outcome of the Telegram token check and, when the

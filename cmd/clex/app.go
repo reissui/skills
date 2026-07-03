@@ -56,7 +56,22 @@ type env struct {
 	service serviceManager
 	// goos overrides runtime.GOOS for service-unit selection in tests.
 	goos string
+
+	// ghToken resolves the ambient GitHub token (real: `gh auth token`).
+	// Injectable so idea/plan/build/init tests supply a fixed token without gh.
+	ghToken tokenResolver
+	// originRemote returns the current repo's git "origin" remote URL (real:
+	// `git remote get-url origin`). Injectable so tests set a repo without a
+	// checkout. An error means "no origin", which callers treat as "no repo".
+	originRemote remoteResolver
 }
+
+// tokenResolver returns the GitHub token to authenticate CLI gh operations. The
+// production resolver shells to `gh auth token`; tests inject a constant.
+type tokenResolver func(ctx context.Context) (string, error)
+
+// remoteResolver returns the git origin remote URL of the working directory.
+type remoteResolver func() (string, error)
 
 // ghFactory builds a GitHub client for a token. It returns the concrete
 // *gh.Client in production; tests substitute a fake satisfying the small
@@ -84,18 +99,37 @@ type ghClient interface {
 // nothing reaches around it.
 func newEnv(stdin io.Reader, stdout, stderr io.Writer) *env {
 	return &env{
-		stdin:       stdin,
-		stdout:      stdout,
-		stderr:      stderr,
-		home:        defaultHome(),
-		now:         time.Now,
-		dialTimeout: ipc.DefaultDialTimeout,
-		probe:       execProbe{},
-		newGH:       realGHFactory,
-		telegram:    realTelegram{},
-		service:     realService{},
-		goos:        runtimeGOOS(),
+		stdin:        stdin,
+		stdout:       stdout,
+		stderr:       stderr,
+		home:         defaultHome(),
+		now:          time.Now,
+		dialTimeout:  ipc.DefaultDialTimeout,
+		probe:        execProbe{},
+		newGH:        realGHFactory,
+		telegram:     realTelegram{},
+		service:      realService{},
+		goos:         runtimeGOOS(),
+		ghToken:      gh.TokenFromGH,
+		originRemote: gitOriginRemote,
 	}
+}
+
+// configuredRepo infers the managed repository ("owner/name") from the current
+// working directory's git "origin" remote. clex commands are run from inside the
+// target repo (spec: "clex init — in a repo …"), so the remote is the natural,
+// config-free source of the repo identity. ok is false when the remote is
+// missing or not a recognizable GitHub URL. Injectable via env.originRemote so
+// tests need no real git checkout.
+func (e *env) configuredRepo() (string, bool) {
+	raw, err := e.originRemote()
+	if err != nil {
+		return "", false
+	}
+	if r, ok := repoFromRemote(raw); ok {
+		return r, true
+	}
+	return "", false
 }
 
 // socketPath is where the daemon listens; commands that need the daemon name it
