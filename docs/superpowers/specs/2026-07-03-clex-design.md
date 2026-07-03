@@ -239,7 +239,7 @@ Nothing is researched twice; no model reads more than its task needs.
 
 Staying current is a feature, not a chore. `clex update` — plus a daily daemon check — covers three layers:
 
-1. **clex itself** — checks GitHub releases; patch releases auto-apply on daemon restart if `update.auto = "patch"`, anything larger is a one-tap Telegram confirm.
+1. **clex itself** — checks GitHub releases; patch releases auto-apply if `update.auto = "patch"`, anything larger is a one-tap Telegram confirm (`clex 0.4.0 available — update? [✓ yes] [changelog] [skip]`). A confirmed update is **staged, then applied only when safe**: the daemon quiesces (no active runners, no open gates), swaps the checksum-verified binary, restarts, and keeps the previous binary for `clex update --rollback`.
 2. **Provider CLIs** — runs the official updaters (`claude update`, the package manager for `codex`); `clex doctor` pins minimum known-good versions, and adapter fixtures catch output-format drift after bumps.
 3. **Models** — the registry re-probes after CLI updates and on its daily tick. Newly available models (including fresh `ollama list` entries) are announced with a proposed tier assignment — `sonnet-5.1 detected — add to mid? [✓] [ignore]` — and retired or renamed models trigger a config fix-up proposal, so tiers never silently rot.
 
@@ -256,6 +256,19 @@ Staying current is a feature, not a chore. `clex update` — plus a daily daemon
 - Global kill switch (`clex pause`, `/pause`) stops dispatch and signals running agents to finish/abort.
 - Guardrails: runners confined to worktrees; never commit to `main`; branch protection on target repos is assumed and recommended by `clex doctor`.
 
+## Security model
+
+clex executes model-generated code and model-chosen commands on your machines and pushes to your repos — treat every input as potentially hostile.
+
+- **Prompt injection is the primary threat.** Issue bodies, repo content, PRDs, and images all flow into models that run commands. Only **owner- or clex-authored** issues, comments, label changes, and steers may drive pipeline actions; changes by any other GitHub account are ignored and logged. Reviewers are explicitly instructed that repo/diff content is untrusted data, never instructions.
+- **Verification commands are arbitrary code execution by design.** They are only honored from issue bodies authored (and last edited) by the owner or clex; anything else falls back to the repo's configured default verification command. The command is always visible at the plan gate.
+- **Telegram authorization is per-user, not per-chat.** Every message *and every inline-button callback* validates the sender's Telegram **user id** against config; failures are dropped and counted. Downloaded images get generated filenames, size limits, and a 0700 spool dir.
+- **Least-privilege child processes.** Runners receive a minimal **allowlisted** environment (PATH, HOME, git/ssh essentials, per-provider auth vars) — never the parent's full env. `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` stay stripped (billing + compliance). Runner CLIs use workspace-scoped permission flags; full-permission modes require an explicit config opt-in with a documented warning.
+- **Local attack surface.** The IPC socket is `0600` under `~/.clex/`; SQLite, config, and spool dirs are `0700`/`0600`. Tokens are never logged; the event log redacts known secret patterns. Run the daemon as a dedicated OS user on shared machines.
+- **GitHub credentials.** Use a fine-grained PAT scoped to the managed repos; `clex doctor` warns on over-scoped (classic full-`repo`) tokens. clex never force-pushes and never pushes to `main`; branch protection on `main` is checked by doctor and recommended in the README.
+- **Supply chain.** Fetched skills are pinned by URL + version + sha256 in the lockfile; changed upstream content fails install until re-pinned. Self-update verifies release checksums before staging and keeps a rollback binary.
+- **Cost containment as safety.** Epic caps and the optional global daily cap bound runaway loops (a compromised or confused planner can't spend unbounded money/quota).
+
 ## Compliance note (why shell-out, not API)
 
 Anthropic permits Max/Pro subscription usage only through the official `claude` binary; routing subscription OAuth through third-party harnesses is prohibited. clex therefore launches official CLIs as child processes and never touches provider APIs with subscription credentials. OpenAI documents ChatGPT-authenticated `codex exec` for automation. This is a hard architectural constraint, not an implementation detail.
@@ -263,6 +276,10 @@ Anthropic permits Max/Pro subscription usage only through the official `claude` 
 ## Deployment & hosting
 
 **Run it on hardware you own.** Develop and test on the local machine; promote the identical binary to the always-on remote machine as a service (launchd on macOS, systemd on Linux). Long-polling means no ports, tunnels, or public endpoints anywhere.
+
+**Distribution — a managed package, like the CLIs it wraps.** Releases are built by goreleaser (macOS arm64/amd64, Linux amd64/arm64) with published checksums: `brew install reissui/tap/clex` (tap auto-updated per release), `go install github.com/reissui/clex/cmd/...@latest`, and a `curl | sh` install script that verifies checksums. The README must give the exact copy-paste path for both machines.
+
+**Onboarding is a guided wizard, not a checklist.** `clex init` walks the user through setup interactively with live feedback: detects `claude`/`codex`/`ollama`/`gh` and their auth states (✓/✗ per line with the fix command when ✗), prompts for the Telegram bot token (with a one-line pointer to @BotFather), **sends a test message and waits for the user to tap it** to bind and verify the chat id, registers the repo, creates labels, and ends with a green summary of everything configured plus the first command to try. `clex service install` generates and loads the launchd/systemd unit for remote hosting — promotion to the remote machine is: install package, copy `~/.clex/`, run `clex service install`.
 
 **Cloudflare — evaluated and rejected for the core.** clex's essence is spawning long-running official CLI processes with git worktrees on a real filesystem, authenticated with consumer subscriptions, optionally alongside local Ollama models. Workers cannot host that shape at all, and while Cloudflare Containers/Sandboxes could, they bill per vCPU/GB-second — hours of daily agent runtime would cost real money to replicate what owned hardware provides at zero marginal cost. Subscription logins on rented infrastructure are also operationally and policy-wise murkier, and local models need your own RAM/GPU. The cost-efficiency question answers itself: the whole design exploits already-paid subscriptions on already-owned machines. Cloudflare remains a fine *optional edge* later (a webhook relay or read-only status page via Tunnel) — never the runtime.
 
