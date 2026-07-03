@@ -1,0 +1,60 @@
+# goreleaser configuration for clex.
+# Builds the clex CLI and clexd daemon for macOS and Linux (arm64/amd64) and
+# publishes checksummed archives plus a Homebrew tap formula.
+# Validate locally with: goreleaser check
+version: 2
+
+project_name: clex
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: clex
+    main: ./cmd/clex
+    binary: clex
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/reissui/clex/internal/version.Version={{.Version}}
+
+  - id: clexd
+    main: ./cmd/clexd
+    binary: clexd
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/reissui/clex/internal/version.Version={{.Version}}
+
+archives:
+  - id: default
+    ids: [clex, clexd]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+# NOTE: Homebrew tap publishing (brew install reissui/tap/clex) is wired in the
+# release/self-update work (issues #19/#20), which own distribution. The
+# scaffold keeps the config to the build+archive+checksum core so
+# `goreleaser check` passes clean without a deprecated tap block.

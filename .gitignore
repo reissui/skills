@@ -1,0 +1,14 @@
+# Build artifacts
+/bin/
+/dist/
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# OS
+.DS_Store
+
+# Local runtime state (never committed)
+/.clex/
