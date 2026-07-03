@@ -6,9 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/reissui/clex/internal/config"
 	"github.com/reissui/clex/internal/core"
 	"github.com/reissui/clex/internal/gh"
 	"github.com/reissui/clex/internal/pipeline"
+	"github.com/reissui/clex/internal/registry"
+	"github.com/reissui/clex/internal/skills"
 	"github.com/reissui/clex/internal/telegram"
 )
 
@@ -303,6 +306,64 @@ type fakeFactory struct {
 func (f *fakeFactory) RunnerFor(core.Model) (pipeline.Runner, error) { return f.runner, nil }
 
 var _ pipeline.RunnerFactory = (*fakeFactory)(nil)
+
+// ---- fakes to construct the REAL pipeline (for TestRealPipelineComposes) ----
+
+// registryFor builds a real registry for cfg with runner backing its provider.
+func registryFor(cfg *config.Config, runner core.Runner) *registry.Registry {
+	runners := make(map[string]core.Runner)
+	for _, m := range cfg.Models {
+		runners[m.Provider] = runner
+	}
+	return registry.New(cfg, runners)
+}
+
+// fakePipelineGH satisfies pipeline.GitHub with inert no-ops. It is only used to
+// construct the real pipeline for the composition smoke test; no stage is run.
+type fakePipelineGH struct{}
+
+func (fakePipelineGH) GetIssue(context.Context, gh.Repo, int) (*gh.Issue, error) {
+	return &gh.Issue{}, nil
+}
+func (fakePipelineGH) CreateIssue(context.Context, gh.Repo, string, string, []string) (*gh.Issue, error) {
+	return &gh.Issue{}, nil
+}
+func (fakePipelineGH) UpdateIssue(context.Context, gh.Repo, int, *string, *string) (*gh.Issue, error) {
+	return &gh.Issue{}, nil
+}
+func (fakePipelineGH) Comment(context.Context, gh.Repo, int, string) error      { return nil }
+func (fakePipelineGH) SetState(context.Context, gh.Repo, int, core.State) error { return nil }
+func (fakePipelineGH) OpenPR(context.Context, gh.Repo, string, string, string, string) (*gh.PullRequest, error) {
+	return &gh.PullRequest{}, nil
+}
+func (fakePipelineGH) GetPR(context.Context, gh.Repo, int) (*gh.PullRequest, error) {
+	return &gh.PullRequest{}, nil
+}
+func (fakePipelineGH) ReviewPR(context.Context, gh.Repo, int, string, string) error { return nil }
+func (fakePipelineGH) MergePR(context.Context, gh.Repo, int, string, string) (string, error) {
+	return "sha", nil
+}
+
+// fakeWorkspace satisfies pipeline.Workspace with inert paths (no git).
+type fakeWorkspace struct{}
+
+func (fakeWorkspace) CreateEpicBranch(context.Context, string, int) (string, error) {
+	return "clex/epic-1", nil
+}
+func (fakeWorkspace) CreateWorktree(context.Context, string, int, int, string) (string, error) {
+	return "/fake/wt", nil
+}
+func (fakeWorkspace) RebaseOntoEpic(context.Context, string, int) error     { return nil }
+func (fakeWorkspace) RebaseEpicOntoMain(context.Context, string, int) error { return nil }
+func (fakeWorkspace) Cleanup(context.Context, string) error                 { return nil }
+func (fakeWorkspace) WorktreePath(string, int, string) string               { return "/fake/wt" }
+
+// fakeSkills satisfies pipeline.SkillResolver with no-ops.
+type fakeSkills struct{}
+
+func (fakeSkills) Resolve([]string, string, string) []skills.SkillDir { return nil }
+func (fakeSkills) SymlinkInto(string, []skills.SkillDir) error        { return nil }
+func (fakeSkills) RenderAgentsMD(string, []skills.SkillDir) error     { return nil }
 
 // contains is strings.Contains without importing strings in every test file.
 func contains(s, sub string) bool {

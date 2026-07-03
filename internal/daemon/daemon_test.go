@@ -157,6 +157,11 @@ func TestStopCancelsTargetOnly(t *testing.T) {
 		t.Fatalf("expected 2 running builds, got %d", len(h.d.running))
 	}
 
+	// Pause first so the reconcile that follows the stop does not immediately
+	// re-dispatch the now-approved #14 (a legitimate but timing-dependent
+	// behavior we exclude here to make the target-only assertion deterministic).
+	h.d.submitControl(context.Background(), controlAction{kind: ctlPause, reply: make(chan string, 1)})
+
 	// Stop only #14.
 	msg := h.d.submitControl(context.Background(), controlAction{kind: ctlStop, issue: 14, reply: make(chan string, 1)})
 	if msg != "stopped #14" {
@@ -170,7 +175,7 @@ func TestStopCancelsTargetOnly(t *testing.T) {
 	if h.gh.stateOf(15) != core.StateBuilding {
 		t.Fatalf("#15 state = %s, want building (untouched)", h.gh.stateOf(15))
 	}
-	// #14 no longer in running set; #15 still there.
+	// #14 no longer in running set; #15 still there. (Paused, so no re-dispatch.)
 	if !waitFor(time.Second, func() bool {
 		h.d.mu.Lock()
 		defer h.d.mu.Unlock()
