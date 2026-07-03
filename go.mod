@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
+	github.com/go-telegram/bot v1.22.0
 	github.com/google/go-github/v66 v66.0.0
 	golang.org/x/oauth2 v0.36.0
 	modernc.org/sqlite v1.53.0
