@@ -1,0 +1,63 @@
+# Canonical clex global config fixture.
+#
+# The [providers]/[models]/[tiers]/[routing.*]/[budget] blocks below are copied
+# verbatim from the spec's "Routing: model tiers and the escalation ladder"
+# section (docs/superpowers/specs/2026-07-03-clex-design.md). The telegram,
+# update, caps, and worktree_root keys come from the spec's "Configuration"
+# section. This file is the load/parse fixture for the full-config test.
+
+telegram_token   = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+telegram_chat_id = 987654321
+worktree_root    = "~/.clex/worktrees"
+
+[providers.claude]
+kind = "claude-cli"                    # delete this block = Claude gone, nothing breaks
+
+[providers.codex]
+kind = "codex-cli"
+
+[providers.ollama]
+kind       = "ollama"
+autodetect = true                      # discovered models join the local tier
+
+[models]
+fable-5     = { provider = "claude", billing = "metered" }      # metered from 2026-07-07
+opus-4-8    = { provider = "claude", billing = "subscription" }
+gpt-5-5     = { provider = "codex",  billing = "subscription" }
+sonnet-5    = { provider = "claude", billing = "subscription" }
+qwen3-coder = { provider = "ollama", billing = "free" }
+
+[tiers]
+top     = ["opus-4-8", "gpt-5-5", "fable-5"]       # plan, review, hard escalations
+mid     = ["sonnet-5", "codex-mini"]               # moderate builds, issue lint
+local   = ["qwen3-coder"]                          # default builders (free)
+
+[routing.plan]
+tier   = "top"            # research/PRD/issues always use a top model
+effort = "max"            # thinking mode for the orchestrating planner
+
+[routing.build]
+policy = "auto"           # success × speed × cost across local + mid (see below)
+
+[routing.review]
+tier = "top"
+
+[routing.lint]
+tier = "mid"
+
+[routing.bot]
+model = "codex:best"      # bot core: smartest available Codex model
+fast  = true
+
+[budget]
+confirm_over_usd  = 2.00    # metered estimates above this require confirmation
+max_usd_per_epic  = 25.00   # optional hard cap; reaching it pauses the epic
+
+[update]
+auto = "patch"             # patch releases auto-apply; larger needs confirmation
+
+[caps.claude]
+max_concurrent = 2         # provider cap: at most 2 concurrent claude runners
+
+[caps.codex]
+max_concurrent = 1

@@ -1,0 +1,32 @@
+# Role-with-no-model: routing.lint points at the "mid" tier, which is empty
+# (its only entry references an undeclared model). This must produce a structured
+# WARNING (so clex doctor can report the gap), not a fatal error — the rest of
+# the config still loads.
+
+telegram_token   = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+telegram_chat_id = 987654321
+
+[providers.claude]
+kind = "claude-cli"
+
+[models]
+opus-4-8 = { provider = "claude", billing = "subscription" }
+
+[tiers]
+top = ["opus-4-8"]
+mid = ["does-not-exist"]     # undeclared -> mid ends up empty
+
+[routing.plan]
+tier = "top"
+
+[routing.build]
+tier = "top"
+
+[routing.review]
+tier = "top"
+
+[routing.lint]
+tier = "mid"        # resolves to zero models -> role-with-no-model warning
+
+[routing.bot]
+tier = "top"
