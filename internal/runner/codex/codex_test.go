@@ -107,6 +107,35 @@ func TestBuildArgs_NoModelFlagWhenEmpty(t *testing.T) {
 	}
 }
 
+// WithExtraArgs injects global flags after the base config flags and before the
+// prompt; the prompt stays the final positional. This is what the local adapter
+// relies on to add --oss (spec: Runner adapters — local uses the same shape).
+func TestBuildArgs_WithExtraArgs(t *testing.T) {
+	a := New("qwen3-coder", WithBinary("/bin/true"), WithExtraArgs("--oss"))
+	got := a.buildArgs(core.Task{Prompt: "build it"}, "/work/tree")
+
+	if indexOf(got, "--oss") < 0 {
+		t.Fatalf("--oss missing from argv: %v", got)
+	}
+	// --oss must precede the prompt, which stays last.
+	if indexOf(got, "--oss") >= indexOf(got, "build it") {
+		t.Errorf("--oss should precede the prompt: %v", got)
+	}
+	if got[len(got)-1] != "build it" {
+		t.Errorf("prompt not last arg: %v", got)
+	}
+
+	// With a resume id, extra args still precede the resume subcommand and the
+	// prompt remains last.
+	got = a.buildArgs(core.Task{Prompt: "go on", ResumeID: "s-1"}, "/d")
+	if indexOf(got, "--oss") >= indexOf(got, "resume") {
+		t.Errorf("--oss should precede resume: %v", got)
+	}
+	if got[len(got)-1] != "go on" {
+		t.Errorf("prompt not last arg on resume: %v", got)
+	}
+}
+
 func TestReasoningEffort(t *testing.T) {
 	cases := map[string]string{
 		"minimal": "minimal",
