@@ -74,6 +74,13 @@ type Provider struct {
 	// deliberately a free string so new adapter kinds need no config-schema
 	// change.
 	Kind string `toml:"kind"`
+	// Binary optionally overrides the executable path for provider kinds that
+	// shell out to a CLI. It is mainly used by tests and by the fake provider;
+	// production users normally rely on PATH.
+	Binary string `toml:"binary"`
+	// Script points the fake provider at a clex-fake-runner JSON script. Other
+	// provider kinds ignore it.
+	Script string `toml:"script"`
 	// Autodetect, when true, lets the adapter discover models dynamically (Ollama
 	// list). Discovered models join the local tier (spec: Routing).
 	Autodetect bool `toml:"autodetect"`

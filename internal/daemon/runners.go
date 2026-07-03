@@ -8,6 +8,7 @@ import (
 	"github.com/reissui/clex/internal/pipeline"
 	"github.com/reissui/clex/internal/runner/claude"
 	"github.com/reissui/clex/internal/runner/codex"
+	"github.com/reissui/clex/internal/runner/fake"
 	"github.com/reissui/clex/internal/runner/local"
 )
 
@@ -30,6 +31,15 @@ func DefaultRunnerBuilder(modelID string, prov config.Provider) (core.Runner, er
 		return codex.New(modelID), nil
 	case "ollama":
 		return local.New(modelID), nil
+	case "fake":
+		opts := []fake.Option{}
+		if prov.Binary != "" {
+			opts = append(opts, fake.WithBinary(prov.Binary))
+		}
+		if prov.Script != "" {
+			opts = append(opts, fake.WithScript(prov.Script))
+		}
+		return fake.New(opts...), nil
 	default:
 		return nil, fmt.Errorf("daemon: unknown provider kind %q for model %q", prov.Kind, modelID)
 	}

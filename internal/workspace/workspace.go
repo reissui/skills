@@ -92,7 +92,10 @@ func (m *Manager) WorktreePath(repo string, issueNum int, slug string) string {
 
 // CreateEpicBranch cuts the integration branch clex/epic-<n> from the latest
 // origin/main and leaves the primary checkout on its original branch. It fetches
-// first so the branch is based on up-to-date trunk (spec: cut from latest main).
+// first so a newly-created branch is based on up-to-date trunk (spec: cut from
+// latest main). If the branch already exists, it is left untouched: repeated
+// build-stage calls must not reset an integration branch that already contains
+// landed child work.
 //
 // repoDir is the repository's primary checkout. The operation runs git there but
 // never checks out or moves main: it creates the branch ref pointed at the
@@ -108,13 +111,16 @@ func (m *Manager) CreateEpicBranch(ctx context.Context, repoDir string, epicNum 
 	if _, err := m.git(ctx, repoDir, "fetch", "origin", MainBranch); err != nil {
 		return "", fmt.Errorf("fetch origin %s: %w", MainBranch, err)
 	}
+	if _, err := m.git(ctx, repoDir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		return branch, nil
+	}
 	// Base the integration branch on the freshly fetched trunk. Prefer
 	// origin/main; fall back to the local main ref when there is no remote
 	// (e.g. a bare local test repo whose "origin" is a sibling directory that
 	// tracks main). Create the ref without checking it out so the primary
 	// checkout's branch and working tree are untouched.
 	base := m.trunkBase(ctx, repoDir)
-	if _, err := m.git(ctx, repoDir, "branch", "--force", branch, base); err != nil {
+	if _, err := m.git(ctx, repoDir, "branch", branch, base); err != nil {
 		return "", fmt.Errorf("create branch %s from %s: %w", branch, base, err)
 	}
 	return branch, nil
