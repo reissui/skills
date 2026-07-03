@@ -10,6 +10,8 @@ clex is a self-hosted agentic development orchestrator. It automates the workflo
 
 It replaces the manual loop of prompting Claude and Codex apps separately, copying output between them, and hand-creating GitHub issues.
 
+**Economic principle:** premium models (Fable 5, Opus 4.8+, GPT-5.5+) are spent on *thinking* — research, planning, issue-writing, and review. Execution defaults to the cheapest model predicted to succeed, including free/local models. The system's job is to make that safe: issues are decomposed until they are simple enough for a modest model to complete stably, and anything built below the top tier is always reviewed by a top-tier model before merge.
+
 ### The workflow it encodes
 
 1. **Idea** — a feature idea arrives (Telegram message or CLI).
@@ -115,36 +117,71 @@ The **model registry** aggregates `Probe()` results plus clex's own usage accoun
 ### 5. Skills layer
 
 - Bundled skill pack in the repo, installed to `~/.clex/skills` on setup: `to-prd`, `to-issues`, `grill-me`, `grill-with-docs` (Matt Pocock's; vendored if licensing permits, otherwise fetched by the installer the way `setup-matt-pocock-skills` does), plus **`clex-plan`** — clex's own planning skill that enforces the output contract: agent-ready child issues (files to touch, acceptance criteria, exact verification command) with dependency links and `touches:` globs.
+- **The "dumb issue" contract.** `clex-plan` must decompose until every child issue passes an executability checklist: one concern per issue; files enumerated; acceptance criteria exact and testable; verification command included; zero design decisions left open; no knowledge required beyond the issue body plus the repo knowledge files (see Context & token economy). The test the planner applies: *could a modest local model complete this without asking a single question?* If not, split further or resolve the ambiguity at the plan gate.
+- **Issue lint.** Before the plan gate, a cheap model runs `clex-issue-lint` over every child issue and scores it against the checklist. Failing issues bounce back to the planner (one automatic pass) before the human ever sees the plan — the goal is that the plan gate needs zero follow-up questions.
 - Discovery order: repo `.clex/skills` → user `~/.clex/skills` → bundled.
 - Injection per runner: Claude Code — symlink into the worktree's `.claude/skills`; Codex — rendered into `AGENTS.md` / prompt templates. The adapter owns the mechanism; the pipeline just names required skills per stage.
 
 ### 6. Telegram bot
 
-- Long-polling (works behind NAT, no server). Single authorized chat id (enforced).
-- **Intake:** free-text idea (optionally `repo:` prefix) → files `clex:idea` issue → replies with inline keyboard: *Research now?* → model picker (from registry).
-- **Plan gate:** when PRD + issues land → message with epic link, issue count, parallelism summary ("6 issues, 4 can run in parallel") → *Build?* → auto-route or per-issue model override.
-- **Progress:** stage transitions, PR links, failures with [Retry] [Reassign model] [Skip].
-- Commands: `/status`, `/pause`, `/resume`, `/models`.
+Long-polling (works behind NAT, no server). Single authorized chat id (enforced).
 
-### 7. Routing
+**Interaction principles — the bot is a tool, not a chat:**
 
-Config rubric maps issue labels/shape to a default provider, always overridable at the Telegram gate:
+- **Progress messages are one line**, edited in place where the API allows rather than stacked ("`#42 building (codex-mini) — 3/5 checks passing`"). No greetings, no filler, no prose.
+- **Every question ships with a proposed answer.** The recommended answer is always the first inline button — the default path is a single tap. `[✓ auth via magic link] [alter…] [skip]`. Tapping *alter* prompts for a one-line reply. The bot never asks an open question it could propose an answer to.
+- **Questions are batched at the plan gate.** During research/planning the planner accumulates its open questions and proposed answers; the bot presents them as one numbered message, confirmable with a single *Confirm all* tap or altered per item. Mid-build questions are an escalation of last resort (a builder hitting one is usually an issue-lint failure to learn from).
+- **Silence is the default.** Between gates, only state changes worth acting on are sent (PR opened, failure, cap reached). Everything else is available on demand via `/status`.
+
+**Surfaces:**
+
+- **Intake:** free-text idea (optionally `repo:` prefix) → files `clex:idea` issue → one reply: *Research?* `[✓ fable-5] [pick model] [later]`.
+- **Plan gate:** epic link, issue count, parallelism and cost summary ("6 issues · 4 parallel · est. 5 local + 1 codex"), the batched questions block, then `[✓ Build all] [adjust] [hold]`.
+- **Progress:** stage transitions and PR links as single edited lines; failures with `[retry] [escalate model] [skip]`.
+- Commands: `/status`, `/pause`, `/resume`, `/models`, `/costs`.
+
+### 7. Routing: model tiers and the escalation ladder
+
+Models are declared in config as **tiers**, not just providers:
 
 ```toml
+[tiers]
+top     = ["fable-5", "opus-4-8", "gpt-5-5"]      # plan, review, hard escalations
+mid     = ["sonnet-5", "codex-mini"]               # moderate builds, issue lint
+local   = ["qwen3-coder", "hermes-4"]              # default builders (free)
+
 [routing]
-default   = "claude"
-rules     = [
-  { match = "refactor|ambiguous|architecture", agent = "claude" },
-  { match = "mechanical|well-specified|crud",  agent = "codex"  },
-  { match = "docs|tests|chore",                agent = "local"  },
-]
+plan     = "top"          # research/PRD/issues always use a top model
+build    = "cheapest"     # cheapest tier whose Probe() is healthy, per issue
+review   = "top"          # see review policy
+lint     = "mid"
 ```
 
-Availability-aware: if a provider is near its cap, the router falls back down a preference list and tells the user it did so.
+- **Build routing:** the planner stamps each issue with a difficulty estimate (`trivial | standard | complex`); the router maps trivial/standard → local, complex → mid, and only routes build work to top on explicit human override. Availability-aware: near-cap providers are skipped and the substitution is noted in the one-line status.
+- **Escalation ladder:** a builder that fails its verification command twice is stopped; the issue escalates one tier, and the failed attempt's diff plus failure notes are handed to the next model (no restart from zero). Escalations surface in Telegram as `[retry] [escalate model] [skip]`.
+- **Token accounting:** the registry records per-provider usage and estimated spend per issue/epic; `/costs` and `clex status` report it, and the plan gate shows the estimated model mix before approval.
 
-### 8. Cross-review stage
+### 8. Review policy
 
-After a PR opens, clex requests review from a *different* provider than the author (e.g. `@codex review` on Claude-authored PRs, or a codex/claude review runner on the diff). Findings are posted as PR comments; the authoring runner may be re-invoked once to address them. Merge remains manual in v1 (auto-merge on green is a config flag, default off).
+Review is where premium tokens buy safety:
+
+- **Mandatory top-tier review** for any PR authored below the top tier (i.e. anything not Opus 4.8+/GPT-5.5+/Fable 5). This is non-negotiable in config (`review.required_below_tier = true` by default).
+- Top-tier-authored PRs get **cross-review by a different top provider** (e.g. `@codex review` on Claude-authored PRs) — different model, different blind spots.
+- Reviews run on the **diff plus the issue's acceptance criteria**, not the whole repo. Findings post as PR comments; the authoring runner is re-invoked once to address them (escalating one tier if it was a local model that can't). Merge remains manual in v1 (auto-merge on green is a config flag, default off).
+
+## Context & token economy
+
+Nothing is researched twice; no model reads more than its task needs.
+
+- **Repo knowledge files** in `.clex/context/`, committed to the repo:
+  - `MAP.md` — architecture/codebase map, generated once by a top model at `clex init`, refreshed incrementally after merges touch new areas.
+  - `PATTERNS.md` — conventions and "how we do X here", appended by planners when they resolve a question that will recur.
+  - `LOG.md` — one line per merged clex PR (issue, what changed, where). Planners and builders read this instead of re-exploring history; it is the "have we done this before?" index.
+- **Stage handoffs are files, not transcripts.** Research writes `PRD.md` (becomes the epic body); the planner emits issues; a builder receives only its issue body, the `touches` files, and excerpts of the knowledge files. No stage inherits another stage's full conversation.
+- **Scoped builder context.** Builders are told to read the issue, `MAP.md`'s relevant section, and their `touches` globs — and nothing else. The dumb-issue contract is what makes this sufficient.
+- **Resume, don't restart.** Retries and review-fix rounds resume the CLI session (`--resume` / `codex exec resume`) instead of paying for a fresh context; escalations carry the failed diff and notes forward.
+- **Stable prompts.** Skill preambles and system prompts are deterministic and ordered stable so provider-side prompt caching (where the CLIs support it) actually hits.
+- **Diff-scoped review.** Reviewers get the diff + acceptance criteria, never the repo.
 
 ## Configuration
 
@@ -165,14 +202,14 @@ Anthropic permits Max/Pro subscription usage only through the official `claude` 
 
 ## Testing strategy
 
-- **Unit:** scheduler (graph building, topo sort, `touches` overlap serialization, provider caps), label state machine transitions, routing rules, config parsing.
+- **Unit:** scheduler (graph building, topo sort, `touches` overlap serialization, provider caps), label state machine transitions, tier routing + escalation ladder, issue-lint scoring against checklist fixtures (good/bad issue examples), config parsing.
 - **Adapter:** parse recorded `claude`/`codex` JSON stream fixtures; probe logic against canned CLI outputs.
 - **Pipeline (integration):** a deterministic `fake` runner (scripted binary emitting the event protocol) drives the full idea→PR flow against a scratch GitHub repo; opt-in, runs in CI nightly not on every push.
 - **Telegram:** handler tests via the bot library's test harness (no live Telegram in CI).
 
 ## v1 scope
 
-Included: daemon + CLI, GitHub-labels state machine, dependency/touches-aware parallel scheduler, claude/codex/local runner adapters, model registry, bundled skill pack + user skills, Telegram intake/gates/notifications, routing rubric, cross-review stage, pause/resume, doctor.
+Included: daemon + CLI, GitHub-labels state machine, dependency/touches-aware parallel scheduler, claude/codex/local runner adapters, model registry with tier routing + escalation ladder + token accounting, bundled skill pack (incl. clex-plan dumb-issue contract and clex-issue-lint), repo knowledge files (MAP/PATTERNS/LOG), Telegram intake/gates/notifications with confirm-or-alter UX, mandatory below-tier review + top-tier cross-review, pause/resume, doctor.
 
 Deferred: external-agent webhook adapter (Hermes/OpenClaw-style), web dashboard, auto-merge-by-default, multi-user, non-GitHub forges.
 
@@ -182,3 +219,4 @@ Deferred: external-agent webhook adapter (Hermes/OpenClaw-style), web dashboard,
 - **CLI output formats change:** adapters pin minimum CLI versions; `clex doctor` verifies; fixtures catch drift.
 - **Merge conflicts despite `touches`:** globs are declared by a planner and can be wrong; rebase-before-PR plus serialized overlap keeps this rare, and failures degrade to a human decision, not corruption.
 - **Rate-window exhaustion:** registry headroom tracking is heuristic; caps are conservative by default.
+- **Cheap-builder quality:** local models will sometimes produce plausible-but-wrong work. Defenses are layered — the dumb-issue contract + issue lint (prevention), the verification command (detection), the escalation ladder (recovery), and mandatory top-tier review (backstop). If a repo shows a high escalation rate, the planner's difficulty estimates are the knob to tune.
