@@ -1,0 +1,12 @@
+{
+  "number": 42,
+  "title": "internal/gh: GitHub client",
+  "state": "open",
+  "user": { "login": "reissui" },
+  "body": "Build the gh package.\n\n```clex\nDepends-on: #3\nTouches: internal/gh/**\nDifficulty: standard\nVerify: go test ./internal/gh/...\n```\n",
+  "labels": [
+    { "name": "clex:building", "color": "5319e7" },
+    { "name": "clex:agent/codex", "color": "d4c5f9" },
+    { "name": "enhancement", "color": "a2eeef" }
+  ]
+}
