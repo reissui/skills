@@ -10,13 +10,13 @@ clex is a self-hosted agentic development orchestrator. It automates the workflo
 
 It replaces the manual loop of prompting Claude and Codex apps separately, copying output between them, and hand-creating GitHub issues.
 
-**Economic principle:** premium models (Fable 5, Opus 4.8+, GPT-5.5+) are spent on *thinking* — research, planning, issue-writing, and review. Execution defaults to the cheapest model predicted to succeed, including free/local models. The system's job is to make that safe: issues are decomposed until they are simple enough for a modest model to complete stably, and anything built below the top tier is always reviewed by a top-tier model before merge.
+**Economic principle:** premium models (Fable 5, Opus 4.8+, GPT-5.5+) are spent on *thinking* — research, planning, issue-writing, and review. Execution defaults to the cheapest, fastest model predicted to succeed — free/local models or budget cloud models (older GPT tiers, Sonnet-class), whichever clears the task sooner. The system's job is to make that safe: issues are decomposed until they are simple enough for a modest model to complete stably, and anything built below the top tier is always reviewed by a top-tier model before merge.
 
 ### The workflow it encodes
 
 1. **Idea** — a feature idea arrives (Telegram message or CLI).
 2. **Research & plan** — a smart model (default: the strongest available Claude model) researches the codebase, reviews how the feature fits, and produces a PRD epic issue plus child issues tagged to it, each with dependency and file-touch metadata.
-3. **Build** — on approval, unblocked issues are executed in parallel, each in its own git worktree on its own branch off `main`, ending in a PR back to `main`, cross-reviewed by a different model.
+3. **Build** — on approval, unblocked issues are executed in parallel, each in its own git worktree on its own branch off the epic's integration branch. Verified and reviewed issue branches merge into the integration branch; when the epic is complete, **one PR** opens from the integration branch to `main` for the owner to review and merge personally — auto-merge only when explicitly requested.
 
 Approval gates between stages happen in Telegram with inline buttons, including model selection informed by live availability.
 
@@ -75,8 +75,10 @@ Valid transitions are enforced by the daemon; unknown/hand-edited states are re-
 - `clex doctor` — checks `claude` and `codex` binaries, auth state, `gh` auth, Ollama presence, Telegram token.
 - `clex idea "…" [--repo r]` — file an idea without Telegram.
 - `clex plan <issue>` / `clex build <issue|epic>` — manually trigger stages.
+- `clex steer <issue|epic> "…"` — mid-flight redirection (same semantics as `/steer`).
 - `clex status` — pipeline view across repos; `clex pause` / `clex resume` — global kill switch.
 - `clex models` — live model/provider availability and rate-limit headroom.
+- `clex update` — self-update across all three layers (see Self-update).
 
 ### 2. Scheduler
 
@@ -84,14 +86,15 @@ Valid transitions are enforced by the daemon; unknown/hand-edited states are re-
 - Topological sort; every issue whose dependencies are closed/merged is *eligible*.
 - **Conflict avoidance:** each issue declares `touches:` file globs (see metadata). Eligible issues with overlapping globs are serialized; disjoint ones run concurrently. Missing `touches` metadata is treated as touching everything (serialized) — planners are instructed to always emit it.
 - Concurrency limits: global `max_parallel`, plus per-provider caps (defaults: claude 2, codex 2, local 4) to protect subscription rate windows.
-- On PR merge, dependents are re-evaluated and dispatched.
+- When an issue branch merges into the epic's integration branch, dependents are re-evaluated and dispatched.
 
-### 3. Workspace manager
+### 3. Workspace manager & branch model
 
-- One git worktree per issue under `~/.clex/worktrees/<repo>/<issue>-<slug>`, branched from latest `main` as `clex/<issue>-<slug>`.
-- Rebases onto `main` before opening a PR; PR created via `gh pr create` with body linking the issue and epic.
+- Each epic gets an **integration branch** `clex/epic-<n>` cut from latest `main`. Child issues get worktrees under `~/.clex/worktrees/<repo>/<issue>-<slug>`, branched from the integration branch as `clex/<issue>-<slug>`.
+- Each issue branch opens a PR **targeting the integration branch** (keeps GitHub-native review surfaces); after its verification command passes and model review approves, it auto-merges into the integration branch and dependents unblock. Issue branches rebase onto the integration branch before merging.
+- When all child issues have landed, the integration branch rebases onto `main`, epic-level verification runs, and **a single PR** opens from `clex/epic-<n>` to `main` — the owner's personal review-and-merge gate. Auto-merge of this final PR only if explicitly enabled per epic or in config (default off).
 - Worktrees cleaned up after merge/close; `clex gc` for manual cleanup.
-- Runners are only ever given a worktree; nothing runs against the main checkout.
+- Runners are only ever given a worktree; nothing runs against the main checkout or touches `main` directly.
 
 ### 4. Runner adapters
 
@@ -136,7 +139,7 @@ Long-polling (works behind NAT, no server). Single authorized chat id (enforced)
 - **Every question ships with a proposed answer.** The recommended answer is always the first inline button — the default path is a single tap. `[✓ auth via magic link] [alter…] [skip]`. Tapping *alter* prompts for a one-line reply. The bot never asks an open question it could propose an answer to.
 - **Questions are batched at the plan gate.** During research/planning the planner accumulates its open questions and proposed answers; the bot presents them as one numbered message, confirmable with a single *Confirm all* tap or altered per item. Mid-build questions are an escalation of last resort (a builder hitting one is usually an issue-lint failure to learn from).
 - **Silence is the default.** Between gates, only state changes worth acting on are sent (PR opened, failure, cap reached). Everything else is available on demand via `/status`.
-- **It answers when asked.** Terse-by-default doesn't mean mute: a direct question ("why did #42 escalate?", "what's left on the epic?") gets a concise answer from a cheap model with access to pipeline state and `LOG.md`. Answering never blocks or touches the running pipeline.
+- **It answers when asked.** Terse-by-default doesn't mean mute: a direct question ("why did #42 escalate?", "what's left on the epic?") gets a concise answer from the bot core — the `bot` routing role, defaulting to the smartest available Codex model in fast mode — with access to pipeline state and `LOG.md`. Answering never blocks or touches the running pipeline.
 - **Images queue, they don't interrupt.** Photos/screenshots (single or albums) sent mid-process attach to the active idea — or to whichever issue/epic the message replies to — and are queued as context for that item's next stage. Nothing running is disturbed; the bot acknowledges with one line (`2 images queued for #42`).
 - **Anything can be interrupted.** Every progress line carries a `[stop]` action, and `/stop <issue>` works from anywhere. Stopping cancels the runner, reverts the issue to its previous label, and preserves the worktree so a later retry can resume rather than restart. `/pause` remains the global switch.
 
@@ -145,7 +148,8 @@ Long-polling (works behind NAT, no server). Single authorized chat id (enforced)
 - **Intake:** free-text idea (optionally `repo:` prefix) → files `clex:idea` issue → one reply: *Research?* `[✓ fable-5] [pick model] [later]`.
 - **Plan gate:** epic link, issue count, parallelism and cost summary ("6 issues · 4 parallel · est. 5 local + 1 codex"), the batched questions block, then `[✓ Build all] [adjust] [hold]`.
 - **Progress:** stage transitions and PR links as single edited lines; failures with `[retry] [escalate model] [skip]`.
-- Commands: `/status`, `/pause`, `/resume`, `/models`, `/costs`.
+- **Steering:** `/steer 42 <text>` — or replying `steer: …` to any progress line — redirects understanding mid-flight. If the target has an active runner, the guidance is injected as the next turn of its resumed session; if idle, it's appended to the issue as a *Steering* note and re-linted (re-planned if it changes scope). Epic-level steers update the PRD and propagate to unstarted issues; already-landed issues that now contradict the steer are flagged, never silently rebuilt.
+- Commands: `/status`, `/pause`, `/resume`, `/stop <issue>`, `/steer`, `/models`, `/costs`.
 
 ### 7. Routing: model tiers and the escalation ladder
 
@@ -174,14 +178,27 @@ top     = ["opus-4-8", "gpt-5-5", "fable-5"]       # plan, review, hard escalati
 mid     = ["sonnet-5", "codex-mini"]               # moderate builds, issue lint
 local   = ["qwen3-coder"]                          # default builders (free)
 
-[routing]
-plan     = "top"          # research/PRD/issues always use a top model
-build    = "cheapest"     # cheapest tier whose Probe() is healthy, per issue
-review   = "top"          # see review policy
-lint     = "mid"
+[routing.plan]
+tier   = "top"            # research/PRD/issues always use a top model
+effort = "max"            # thinking mode for the orchestrating planner
+
+[routing.build]
+policy = "auto"           # success × speed × cost across local + mid (see below)
+
+[routing.review]
+tier = "top"
+
+[routing.lint]
+tier = "mid"
+
+[routing.bot]
+model = "codex:best"      # bot core: smartest available Codex model
+fast  = true
 ```
 
-- **Build routing:** the planner stamps each issue with a difficulty estimate (`trivial | standard | complex`); the router maps trivial/standard → local, complex → mid, and only routes build work to top on explicit human override. Availability-aware: near-cap providers are skipped and the substitution is noted in the one-line status.
+- **Build routing weighs success, speed, and cost — not cost alone.** The build-eligible pool spans local models *and* cheap/fast subscription models (older GPT tiers, Sonnet 5, codex-mini). The planner stamps each issue with a difficulty estimate (`trivial | standard | complex`); the router then picks the model with the best combination of predicted success (difficulty vs. that model's track record in SQLite), observed speed (per-model, per-stage latency history), and cost rank (`free` < `subscription` < `metered`). A fast subscription model legitimately beats a local one when it clears the queue sooner. Build work routes to top-tier only on explicit human override. Availability-aware: near-cap providers are skipped and the substitution is noted in the one-line status.
+- **Thinking & fast modes are configuration.** Models accept `effort` (reasoning/thinking level) and `fast` (fast-output mode where the provider supports it) attributes, with per-role overrides — e.g. `[routing.plan] effort = "max"` for the orchestrating planner, `fast = true` for the bot core. Adapters translate these to each CLI's native flags.
+- **Bot core model:** the Telegram bot's own brain (on-demand answers, question batching, steer interpretation) is a routing role like any other. Default: **the smartest available Codex model** (`[routing.bot] model = "codex:best", fast = true`) — subscription-covered, fast, and fully overridable like everything else.
 - **Escalation ladder:** a builder that fails its verification command twice is stopped; the issue escalates one tier, and the failed attempt's diff plus failure notes are handed to the next model (no restart from zero). Escalations surface in Telegram as `[retry] [escalate model] [skip]`.
 - **Token accounting:** the registry records per-provider usage and estimated spend per issue/epic; `/costs` and `clex status` report it, and the plan gate shows the estimated model mix before approval.
 
@@ -201,7 +218,8 @@ Review is where premium tokens buy safety:
 
 - **Mandatory top-tier review** for any PR authored below the top tier (i.e. anything not Opus 4.8+/GPT-5.5+/Fable 5). This is non-negotiable in config (`review.required_below_tier = true` by default).
 - Top-tier-authored PRs get **cross-review by a different top provider** (e.g. `@codex review` on Claude-authored PRs) — different model, different blind spots. If only one top-tier provider is registered, this degrades gracefully to a fresh-context, review-only session on the same provider.
-- Reviews run on the **diff plus the issue's acceptance criteria**, not the whole repo. Findings post as PR comments; the authoring runner is re-invoked once to address them (escalating one tier if it was a local model that can't). Merge remains manual in v1 (auto-merge on green is a config flag, default off).
+- Reviews run on the **diff plus the issue's acceptance criteria**, not the whole repo. Findings post as PR comments; the authoring runner is re-invoked once to address them (escalating one tier if it was a local model that can't).
+- Model reviews gate the **issue → integration branch** merges, which happen automatically once verification passes and the review approves. The **final epic → `main` PR is always the owner's manual gate** (unless auto-merge was explicitly requested); clex posts a top-tier summary review comment on it — what changed, per-issue verification results, anything the reviewers flagged — to make the human review fast.
 
 ## Context & token economy
 
@@ -216,6 +234,14 @@ Nothing is researched twice; no model reads more than its task needs.
 - **Resume, don't restart.** Retries and review-fix rounds resume the CLI session (`--resume` / `codex exec resume`) instead of paying for a fresh context; escalations carry the failed diff and notes forward.
 - **Stable prompts.** Skill preambles and system prompts are deterministic and ordered stable so provider-side prompt caching (where the CLIs support it) actually hits.
 - **Diff-scoped review.** Reviewers get the diff + acceptance criteria, never the repo.
+
+## Self-update
+
+Staying current is a feature, not a chore. `clex update` — plus a daily daemon check — covers three layers:
+
+1. **clex itself** — checks GitHub releases; patch releases auto-apply on daemon restart if `update.auto = "patch"`, anything larger is a one-tap Telegram confirm.
+2. **Provider CLIs** — runs the official updaters (`claude update`, the package manager for `codex`); `clex doctor` pins minimum known-good versions, and adapter fixtures catch output-format drift after bumps.
+3. **Models** — the registry re-probes after CLI updates and on its daily tick. Newly available models (including fresh `ollama list` entries) are announced with a proposed tier assignment — `sonnet-5.1 detected — add to mid? [✓] [ignore]` — and retired or renamed models trigger a config fix-up proposal, so tiers never silently rot.
 
 ## Configuration
 
@@ -234,6 +260,12 @@ Nothing is researched twice; no model reads more than its task needs.
 
 Anthropic permits Max/Pro subscription usage only through the official `claude` binary; routing subscription OAuth through third-party harnesses is prohibited. clex therefore launches official CLIs as child processes and never touches provider APIs with subscription credentials. OpenAI documents ChatGPT-authenticated `codex exec` for automation. This is a hard architectural constraint, not an implementation detail.
 
+## Deployment & hosting
+
+**Run it on hardware you own.** Develop and test on the local machine; promote the identical binary to the always-on remote machine as a service (launchd on macOS, systemd on Linux). Long-polling means no ports, tunnels, or public endpoints anywhere.
+
+**Cloudflare — evaluated and rejected for the core.** clex's essence is spawning long-running official CLI processes with git worktrees on a real filesystem, authenticated with consumer subscriptions, optionally alongside local Ollama models. Workers cannot host that shape at all, and while Cloudflare Containers/Sandboxes could, they bill per vCPU/GB-second — hours of daily agent runtime would cost real money to replicate what owned hardware provides at zero marginal cost. Subscription logins on rented infrastructure are also operationally and policy-wise murkier, and local models need your own RAM/GPU. The cost-efficiency question answers itself: the whole design exploits already-paid subscriptions on already-owned machines. Cloudflare remains a fine *optional edge* later (a webhook relay or read-only status page via Tunnel) — never the runtime.
+
 ## Testing strategy
 
 - **Unit:** scheduler (graph building, topo sort, `touches` overlap serialization, provider caps), label state machine transitions, tier routing + escalation ladder, issue-lint scoring against checklist fixtures (good/bad issue examples), config parsing.
@@ -243,7 +275,7 @@ Anthropic permits Max/Pro subscription usage only through the official `claude` 
 
 ## v1 scope
 
-Included: daemon + CLI, GitHub-labels state machine, dependency/touches-aware parallel scheduler, claude/codex/local runner adapters with hot-swappable provider config + billing modes + cost gates, Ollama autodetect, model registry with tier routing + escalation ladder + token accounting, bundled skill pack (incl. clex-plan dumb-issue contract and clex-issue-lint), repo knowledge files (MAP/PATTERNS/LOG), Telegram intake/gates/notifications with confirm-or-alter UX + on-demand Q&A + image queueing + per-task stop, mandatory below-tier review + top-tier cross-review (single-provider fallback), pause/resume, doctor.
+Included: daemon + CLI, GitHub-labels state machine, dependency/touches-aware parallel scheduler, epic integration branch + single final PR flow, claude/codex/local runner adapters with hot-swappable provider config + billing modes + cost gates + effort/fast mode attributes, Ollama autodetect, model registry with success×speed×cost build routing + escalation ladder + token accounting, bundled skill pack (incl. clex-plan dumb-issue contract and clex-issue-lint), repo knowledge files (MAP/PATTERNS/LOG), Telegram intake/gates/notifications with confirm-or-alter UX + bot-core Q&A (codex:best) + image queueing + per-task stop + steer, mandatory below-tier review + top-tier cross-review (single-provider fallback), self-update, pause/resume, doctor.
 
 Deferred: external-agent webhook adapter (Hermes/OpenClaw-style), web dashboard, auto-merge-by-default, multi-user, non-GitHub forges.
 
