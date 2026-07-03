@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
@@ -72,46 +71,34 @@ func TestScenarioParallelBuildsToAssemble(t *testing.T) {
 	}
 	mu.Unlock()
 
-	// Release both builds; each advances build→review→merged.
+	// When a child's review merges, simulate the merged PR closing the issue by
+	// removing it from the open set — exactly what GitHub does. This lets the
+	// daemon's automatic maybeAssemble path detect "all children landed" and
+	// assemble the epic without any test-driven Assemble call.
+	stages.onMerge = func(issue int) {
+		h.gh.mu.Lock()
+		delete(h.gh.issues, issue)
+		h.gh.mu.Unlock()
+	}
+
+	// Release both builds; each advances build→review→merged→(maybe assemble).
 	close(release[101])
 	close(release[102])
 
-	// Both children reviewed and merged.
-	if !waitFor(2*time.Second, func() bool {
+	// The epic assembles automatically once the second child lands.
+	if !waitFor(3*time.Second, func() bool {
 		stages.mu.Lock()
 		defer stages.mu.Unlock()
-		return len(stages.reviewCalls) >= 2
+		return len(stages.assembleCalls) >= 1
 	}) {
-		t.Fatalf("expected 2 reviews; got %v", stages.reviewCalls)
+		t.Fatalf("epic did not auto-assemble; reviews=%v assembles=%v", stages.reviewCalls, stages.assembleCalls)
 	}
-
-	// Simulate the children leaving the open set (merged PRs close the issues).
-	// The daemon's maybeAssemble scans open issues; remove the children so the
-	// epic is ready to assemble, then nudge a reconcile via a poller change.
-	h.gh.mu.Lock()
-	delete(h.gh.issues, 101)
-	delete(h.gh.issues, 102)
-	h.gh.mu.Unlock()
-
-	// Trigger assembly by invoking it directly on the loop's behalf: emit a
-	// change so the loop reconciles, and call maybeAssemble through a merged
-	// review of a synthetic trailing child is unnecessary — assert the stage
-	// contract via the epicChildren-driven path.
-	h.gh.emit(gh.Change{Repo: testRepo, Kind: gh.ChangeIssueClosed, Issue: 102, Actor: "acme"})
-
-	// Because epicChildren conservatively reports readiness only when children
-	// are enumerable, drive assembly deterministically to assert the stage is
-	// callable and produces the single final PR.
-	res, err := h.d.deps.Stages.Assemble(context.Background(), 100, true, pipeline.AssembleInput{EpicTitle: "Epic: feature", Children: []int{101, 102}}, "go test ./...", 0)
-	if err != nil {
-		t.Fatalf("assemble: %v", err)
-	}
-	if res.PRNumber == 0 {
-		t.Fatal("assemble did not open a final PR")
+	if !h.tg.sentContains("final PR") {
+		t.Fatal("expected a final-PR notification from assembly")
 	}
 
 	// Store recorded events across the scenario (audit trail is populated).
-	if evs, err := h.st.RecentEvents(100); err == nil && len(evs) == 0 {
+	if evs, err := h.st.RecentEvents(200); err == nil && len(evs) == 0 {
 		t.Fatal("expected the event log to record scenario activity")
 	}
 }

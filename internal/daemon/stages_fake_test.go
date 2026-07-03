@@ -44,6 +44,9 @@ type fakeStages struct {
 
 	// onBuild is an optional hook invoked at the start of each Build.
 	onBuild func(issue int)
+	// onMerge is an optional hook invoked when Review merges an issue, letting a
+	// test simulate the merged PR closing the issue (removing it from open).
+	onMerge func(issue int)
 }
 
 func newFakeStages() *fakeStages {
@@ -104,7 +107,11 @@ func (s *fakeStages) Review(_ context.Context, _ int, iss *gh.Issue, _ int, _ co
 	s.mu.Lock()
 	s.reviewCalls = append(s.reviewCalls, iss.Number)
 	merged := s.reviewMerged
+	hook := s.onMerge
 	s.mu.Unlock()
+	if merged && hook != nil {
+		hook(iss.Number)
+	}
 	out := pipeline.ReviewResult{Outcome: pipeline.ReviewApproved, Merged: merged, MergeSHA: "abcdef1234"}
 	return out, nil
 }

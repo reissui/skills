@@ -54,7 +54,7 @@ func (d *Daemon) dispatchBuild(ctx context.Context, disp scheduler.Dispatch, iss
 // spawns the build goroutine. carryDiff (non-empty on escalation) and failures
 // seed the runState so an escalation re-dispatch carries prior context forward.
 func (d *Daemon) startBuild(ctx context.Context, iss *gh.Issue, disp scheduler.Dispatch, model core.Model, carryDiff string, failures int) {
-	epicNum := epicOf(iss)
+	epicNum := d.resolveEpic(ctx, iss)
 
 	// Move to building (idempotent label swap). If the transition is invalid
 	// (e.g. issue already moved), log and bail rather than force it.
@@ -183,8 +183,11 @@ func (d *Daemon) onBuildSuccess(ctx context.Context, done buildDone) {
 		d.log.Warn("get issue post-build", "issue", done.issue, "err", d.red.Redact(err.Error()))
 		return
 	}
-	epicNum := epicOf(iss)
-	green := done.result.Verification.Command == "" || true // build succeeded ⇒ verification green
+	epicNum := d.resolveEpic(ctx, iss)
+	// A green build is one that returned without error: the pipeline's Build only
+	// succeeds when its verification command passed (else it returns
+	// ErrVerificationFailed), so reaching here implies verification is green.
+	green := true
 	d.logEvent(ctx, done.issue, "build", fmt.Sprintf("succeeded; PR #%d; moving to review", done.result.PRNumber))
 
 	rev, err := d.deps.Stages.Review(ctx, epicNum, iss, done.result.PRNumber, done.result.Model, done.diff, green)
@@ -194,7 +197,7 @@ func (d *Daemon) onBuildSuccess(ctx context.Context, done buildDone) {
 	}
 	if rev.Outcome == pipeline.ReviewApproved && rev.Merged {
 		d.notify(ctx, fmt.Sprintf("✓ #%d merged into epic (%s)", done.issue, shortSHA(rev.MergeSHA)))
-		d.maybeAssemble(ctx, epicNum)
+		d.maybeAssemble(ctx, epicNum, done.issue)
 	} else {
 		d.notify(ctx, fmt.Sprintf("#%d review: %s", done.issue, rev.Outcome))
 	}
@@ -230,7 +233,12 @@ func (d *Daemon) startEscalatedBuild(ctx context.Context, issue int, model core.
 }
 
 // maybeAssemble runs the assemble stage when every child of the epic has landed.
-func (d *Daemon) maybeAssemble(ctx context.Context, epicNum int) {
+// mergedChild is the child that just merged (triggering this check); it is added
+// to the roster so it counts as a known-and-landed child even though it has
+// already left the open set. The epic is ready when the roster is non-empty and
+// no roster member — nor any other open issue depending on the epic — remains
+// open.
+func (d *Daemon) maybeAssemble(ctx context.Context, epicNum, mergedChild int) {
 	if epicNum == 0 {
 		return
 	}
@@ -238,7 +246,11 @@ func (d *Daemon) maybeAssemble(ctx context.Context, epicNum int) {
 	if err != nil {
 		return
 	}
-	children, allLanded := d.epicChildren(issues, epicNum)
+	var roster []int
+	if mergedChild != 0 {
+		roster = append(roster, mergedChild)
+	}
+	children, allLanded := d.epicChildren(issues, roster, epicNum)
 	if !allLanded {
 		return
 	}
