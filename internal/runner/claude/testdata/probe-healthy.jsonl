@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"sess-probe-ok","model":"claude-opus-4-8","permissionMode":"default"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1783078800,"rateLimitType":"five_hour","overageStatus":"allowed","isUsingOverage":false},"session_id":"sess-probe-ok"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"pong"}],"usage":{"input_tokens":5,"output_tokens":1}},"session_id":"sess-probe-ok"}
+{"type":"result","subtype":"success","is_error":false,"result":"pong","session_id":"sess-probe-ok","usage":{"input_tokens":5,"output_tokens":1}}

@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","cwd":"/tmp/work","session_id":"sess-mal-1","model":"claude-opus-4-8","permissionMode":"default"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"before"}],"usage":{"input_tokens":10,"output_tokens":2}},"session_id":"sess-mal-1"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"tr
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"after"}],"usage":{"input_tokens":11,"output_tokens":2}},"session_id":"sess-mal-1"}
+{"type":"result","subtype":"success","is_error":false,"result":"after","session_id":"sess-mal-1","usage":{"input_tokens":21,"output_tokens":4}}
