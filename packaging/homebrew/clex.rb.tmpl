@@ -1,0 +1,15 @@
+class Clex < Formula
+  desc "Self-hosted agentic development orchestrator"
+  homepage "https://github.com/reissui/clex"
+  url "{{ .ArtifactURL }}"
+  sha256 "{{ .ArtifactSHA256 }}"
+
+  def install
+    bin.install "clex"
+    bin.install "clexd"
+  end
+
+  test do
+    system "#{bin}/clex", "version"
+  end
+end

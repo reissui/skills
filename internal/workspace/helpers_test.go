@@ -103,6 +103,13 @@ func branchExists(t *testing.T, dir, branch string) bool {
 	return cmd.Run() == nil
 }
 
+func fileExistsOnBranch(t *testing.T, dir, branch, file string) bool {
+	t.Helper()
+	cmd := exec.Command("git", "cat-file", "-e", branch+":"+file)
+	cmd.Dir = dir
+	return cmd.Run() == nil
+}
+
 // assertNotRebasing fails if dir is mid-rebase (rebase-merge/rebase-apply state
 // dirs present in the worktree's git dir).
 func assertNotRebasing(t *testing.T, dir string) {
