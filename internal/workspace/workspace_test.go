@@ -83,6 +83,28 @@ func TestCreateEpicBranch(t *testing.T) {
 	}
 }
 
+func TestCreateEpicBranchDoesNotResetExistingBranch(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+
+	if _, err := r.mgr.CreateEpicBranch(ctx, r.primary, 42); err != nil {
+		t.Fatalf("CreateEpicBranch first call: %v", err)
+	}
+	commitOn(t, r.primary, "clex/epic-42", "landed.txt", "landed child\n", "land child")
+	landedRev := revParse(t, r.primary, "clex/epic-42")
+	run(t, r.primary, "git", "checkout", "main")
+
+	if _, err := r.mgr.CreateEpicBranch(ctx, r.primary, 42); err != nil {
+		t.Fatalf("CreateEpicBranch second call: %v", err)
+	}
+	if got := revParse(t, r.primary, "clex/epic-42"); got != landedRev {
+		t.Fatalf("second CreateEpicBranch reset existing branch: got %s want %s", got, landedRev)
+	}
+	if !fileExistsOnBranch(t, r.primary, "clex/epic-42", "landed.txt") {
+		t.Fatal("existing epic branch lost landed child content")
+	}
+}
+
 func TestCreateWorktree(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
