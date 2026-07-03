@@ -100,6 +100,15 @@ type Status struct {
 	PendingGate string `json:"pending_gate,omitempty"`
 	// Uptime is a human-readable daemon uptime string.
 	Uptime string `json:"uptime,omitempty"`
+	// Pipeline summarizes the count of issues in each pipeline state, keyed by
+	// the bare state name (e.g. "planned", "building"). It powers `clex status`'s
+	// pipeline view without the CLI re-reading GitHub. Additive in protocol v1;
+	// an older daemon simply omits it.
+	Pipeline map[string]int `json:"pipeline,omitempty"`
+	// Explain carries the scheduler's human-readable reasons for its current
+	// dispatch decisions (spec: scheduler Explain). `clex status` prints these so
+	// the operator can see why work is or isn't running. Additive; may be nil.
+	Explain []string `json:"explain,omitempty"`
 }
 
 // RunningIssue describes one in-flight runner in a Status snapshot.
@@ -126,4 +135,8 @@ type Costs struct {
 	SpentTodayUSD float64 `json:"spent_today_usd"`
 	// Lines are human-readable per-model or per-stage cost lines.
 	Lines []string `json:"lines,omitempty"`
+	// EstimatedThisEpicUSD is the pre-run estimate for the active epic, so
+	// `clex costs` can show estimate-vs-actual drift (spec: costs report drift).
+	// Additive in protocol v1; zero when the daemon does not supply it.
+	EstimatedThisEpicUSD float64 `json:"estimated_this_epic_usd,omitempty"`
 }
