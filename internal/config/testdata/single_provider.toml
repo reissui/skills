@@ -1,0 +1,32 @@
+# Single-provider config: only Claude registered. Every routing role must still
+# resolve to at least one model (spec: "every role must keep working when only
+# one provider exists").
+
+telegram_token   = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+telegram_chat_id = 987654321
+
+[providers.claude]
+kind = "claude-cli"
+
+[models]
+opus-4-8 = { provider = "claude", billing = "subscription" }
+sonnet-5 = { provider = "claude", billing = "subscription" }
+
+[tiers]
+top = ["opus-4-8"]
+mid = ["sonnet-5"]
+
+[routing.plan]
+tier = "top"
+
+[routing.build]
+tier = "mid"
+
+[routing.review]
+tier = "top"
+
+[routing.lint]
+tier = "mid"
+
+[routing.bot]
+tier = "top"

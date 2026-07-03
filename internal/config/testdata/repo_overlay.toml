@@ -1,0 +1,14 @@
+# Per-repo config (.clex/config.toml). Overlays the global config per-key
+# (shallow): head branch, verification default, and repo-specific routing/skills.
+# Keys omitted here inherit from global; keys present here replace the global
+# value wholesale (spec: "per-repo overlays global (per-key, shallow)").
+
+head_branch  = "develop"
+verification = "go test ./... && golangci-lint run"
+# Repo-specific skills injected on top of the bundled pack. Kept above the first
+# table header so it stays a top-level key, not a member of [routing.plan].
+skills = ["clex-plan", "go-review"]
+
+# Repo-specific routing override: this repo wants plan on the mid tier, not top.
+[routing.plan]
+tier = "mid"
