@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for the clex daemon (macOS).
+
+  Install (per-user LaunchAgent):
+    cp deploy/launchd/com.reissui.clexd.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.reissui.clexd.plist
+
+  `clex service install` generates and loads this for you. The daemon needs no
+  open ports (it long-polls GitHub and Telegram).
+
+  Replace the placeholders below:
+    - /usr/local/bin/clexd  → the installed binary path (see `which clexd`)
+    - OWNER/NAME            → the repository to manage
+    - the GITHUB_TOKEN value → a fine-grained PAT scoped to the managed repos
+      (prefer sourcing it from the login keychain in production rather than
+      inlining it here; a plist is not a secret store).
+
+  KeepAlive restarts the daemon if it exits; clex is crash-safe and reconstructs
+  in-flight work from GitHub labels on startup, so an unclean restart is fine.
+  On stop, launchd sends SIGTERM, which triggers the daemon's graceful shutdown
+  (cancel runners, revert labels, flush the store).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.reissui.clexd</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/clexd</string>
+        <string>--repo</string>
+        <string>OWNER/NAME</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>GITHUB_TOKEN</key>
+        <string>github_pat_REPLACE_ME</string>
+        <key>CLEX_SELF_LOGIN</key>
+        <string>clex-bot</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Graceful stop: SIGTERM, then a grace period before SIGKILL. -->
+    <key>ExitTimeOut</key>
+    <integer>30</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/clexd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/clexd.err.log</string>
+</dict>
+</plist>
