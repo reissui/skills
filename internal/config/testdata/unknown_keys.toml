@@ -1,0 +1,36 @@
+# Forward-compatibility fixture: contains keys and a whole table that this
+# version of clex does not know about. These must surface as WARNINGS, not
+# errors, so a newer config still loads on an older binary.
+
+telegram_token   = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+telegram_chat_id = 987654321
+future_top_level = "from a newer clex"     # unknown top-level key
+
+[providers.claude]
+kind      = "claude-cli"
+future_kv = true                           # unknown key inside a known table
+
+[models]
+opus-4-8 = { provider = "claude", billing = "subscription" }
+
+[tiers]
+top = ["opus-4-8"]
+
+[routing.plan]
+tier = "top"
+
+[routing.build]
+tier = "top"
+
+[routing.review]
+tier = "top"
+
+[routing.lint]
+tier = "top"
+
+[routing.bot]
+tier = "top"
+
+[telemetry]                                # entire unknown table
+enabled  = true
+endpoint = "https://example.invalid"

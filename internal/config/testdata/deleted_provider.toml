@@ -1,0 +1,42 @@
+# Deleted-provider-with-orphan-models: the [providers.codex] block has been
+# removed, but models and tiers still reference codex-authored models. This is
+# NOT an error: the orphaned models (gpt-5-5) are dropped with a warning, and any
+# tier entry pointing at a dropped/undeclared model is likewise dropped with a
+# warning (codex-mini). The remaining models still cover every role, so no role
+# goes empty here.
+
+telegram_token   = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+telegram_chat_id = 987654321
+
+# [providers.codex] intentionally deleted — subscription dropped.
+[providers.claude]
+kind = "claude-cli"
+
+[providers.ollama]
+kind       = "ollama"
+autodetect = true
+
+[models]
+opus-4-8    = { provider = "claude", billing = "subscription" }
+gpt-5-5     = { provider = "codex",  billing = "subscription" }   # orphan: provider gone
+qwen3-coder = { provider = "ollama", billing = "free" }
+
+[tiers]
+top   = ["opus-4-8", "gpt-5-5"]          # gpt-5-5 dropped -> top = [opus-4-8]
+mid   = ["codex-mini"]                    # undeclared model -> mid emptied
+local = ["qwen3-coder"]
+
+[routing.plan]
+tier = "top"
+
+[routing.build]
+tier = "local"
+
+[routing.review]
+tier = "top"
+
+[routing.lint]
+tier = "top"      # points at top (not the emptied mid) so lint still resolves
+
+[routing.bot]
+tier = "top"

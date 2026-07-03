@@ -1,0 +1,32 @@
+# Local-only config: zero subscription providers, Ollama only (degraded but
+# functional). Must validate (spec: "neither subscription — local models only,
+# degraded but functional").
+
+telegram_token   = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+telegram_chat_id = 987654321
+
+[providers.ollama]
+kind       = "ollama"
+autodetect = true
+
+[models]
+qwen3-coder = { provider = "ollama", billing = "free" }
+llama3      = { provider = "ollama", billing = "free" }
+
+[tiers]
+local = ["qwen3-coder", "llama3"]
+
+[routing.plan]
+tier = "local"
+
+[routing.build]
+tier = "local"
+
+[routing.review]
+tier = "local"
+
+[routing.lint]
+tier = "local"
+
+[routing.bot]
+tier = "local"
