@@ -74,15 +74,16 @@ func dependsOn(iss *gh.Issue, epicNum int) bool {
 	return false
 }
 
-// knowledgeFor assembles the trimmed knowledge-file context for a build. On an
-// escalation/retry the prior failed diff is threaded into the Log excerpt so the
-// resumed runner sees "here is what the previous attempt produced" rather than
-// starting cold (spec: escalation re-dispatch carries the failed diff + notes
-// forward).
-func (d *Daemon) knowledgeFor(_ *gh.Issue, carryDiff string) pipeline.KnowledgeExcerpts {
+// knowledgeFor assembles the trimmed knowledge-file context for a build. On a
+// retry/escalation the prior CLI session id is noted in the Log excerpt so the
+// re-dispatched runner is directed to resume it — re-entering the prior attempt's
+// work (including the diff it produced) rather than starting cold (spec: retry/
+// escalation re-dispatch carries prior work + notes forward via "Resume, don't
+// restart"). resumeID is empty on a fresh build.
+func (d *Daemon) knowledgeFor(_ *gh.Issue, resumeID string) pipeline.KnowledgeExcerpts {
 	k := pipeline.KnowledgeExcerpts{}
-	if carryDiff != "" {
-		k.Log = "Previous attempt diff (carried forward for escalation):\n" + carryDiff
+	if resumeID != "" {
+		k.Log = "Resume the prior attempt (CLI session " + resumeID + ") — continue from its work rather than restarting."
 	}
 	return k
 }

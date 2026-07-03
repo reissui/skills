@@ -281,6 +281,37 @@ func TestPauseHoldsNewDispatches(t *testing.T) {
 	}
 }
 
+// TestEscalationNeverDoublesEvenIfLadderMisbehaves proves the daemon escalates
+// AT MOST once even when the registry ladder keeps offering a "stronger" model.
+// After the single escalation the escalated build also fails; the daemon must
+// hand it to a human, not escalate again — the one-escalation rule holds
+// independent of EscalateModel's behavior.
+func TestEscalationNeverDoublesEvenIfLadderMisbehaves(t *testing.T) {
+	stages := newFakeStages()
+	// Fail attempts 1, 2, AND the escalated attempt 3 — all verification failures.
+	stages.failBuilds(22, pipeline_errVerification(), pipeline_errVerification(), pipeline_errVerification())
+	// A misbehaving ladder that ALWAYS offers a "stronger" model.
+	stages.setEscalation(core.Model{ID: "opus-4-8", Provider: "claude"}, true)
+	h := newHarness(t, stages)
+	h.approvedIssue(22, nil, []string{"pkg2/**"})
+	h.runDaemon(t)
+
+	// Wait for the failed escalated build (attempt 3).
+	if !waitFor(2*time.Second, func() bool { return stages.buildCount(22) >= 3 }) {
+		t.Fatalf("expected >=3 attempts; got %d", stages.buildCount(22))
+	}
+	// Let the loop settle, then assert escalation happened exactly once despite
+	// the ladder still offering a model.
+	time.Sleep(100 * time.Millisecond)
+	if got := stages.escalations(); got != 1 {
+		t.Fatalf("escalations = %d, want exactly 1 (no double-escalation)", got)
+	}
+	// And the issue should not still be building (handed to human / left approved).
+	if !h.tg.sentContains("after escalation") {
+		t.Fatal("expected a 'needs a decision after escalation' notification")
+	}
+}
+
 // pipeline_errVerification returns the pipeline verification-failed sentinel via
 // the exported var, kept in a helper so tests read cleanly.
 func pipeline_errVerification() error { return errVerificationSentinel }

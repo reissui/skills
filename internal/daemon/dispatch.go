@@ -47,13 +47,24 @@ func (d *Daemon) dispatchBuild(ctx context.Context, disp scheduler.Dispatch, iss
 		return
 	}
 
-	d.startBuild(ctx, iss, disp, model, "", 0)
+	d.startBuild(ctx, iss, disp, model, dispatchOpts{})
+}
+
+// dispatchOpts carries the re-dispatch state that distinguishes a fresh build
+// from a retry or escalation: the CLI session to resume (so the runner re-enters
+// its prior work rather than restarting), the prior failure count, and whether
+// escalation has already been spent (so a failing escalated build does not
+// escalate twice).
+type dispatchOpts struct {
+	resumeID  string
+	failures  int
+	escalated bool
 }
 
 // startBuild transitions the issue to clex:building, records a session, and
-// spawns the build goroutine. carryDiff (non-empty on escalation) and failures
-// seed the runState so an escalation re-dispatch carries prior context forward.
-func (d *Daemon) startBuild(ctx context.Context, iss *gh.Issue, disp scheduler.Dispatch, model core.Model, carryDiff string, failures int) {
+// spawns the build goroutine. opts seeds the runState so a retry/escalation
+// re-dispatch carries prior context forward and the one-escalation rule holds.
+func (d *Daemon) startBuild(ctx context.Context, iss *gh.Issue, disp scheduler.Dispatch, model core.Model, opts dispatchOpts) {
 	epicNum := d.resolveEpic(ctx, iss)
 
 	// Move to building (idempotent label swap). If the transition is invalid
@@ -63,23 +74,30 @@ func (d *Daemon) startBuild(ctx context.Context, iss *gh.Issue, disp scheduler.D
 		return
 	}
 
-	sessionID, _ := d.deps.Store.CreateSession(store.Session{
+	sessionID, serr := d.deps.Store.CreateSession(store.Session{
 		Issue:     iss.Number,
 		Repo:      d.cfg.Repo.String(),
 		Model:     model.ID,
 		State:     store.SessionRunning,
 		StartedAt: time.Now(),
 	})
+	if serr != nil {
+		// Non-fatal: the build proceeds without a session row (guarded by
+		// sessionID != 0 below), but a persistently failing store must be visible
+		// rather than silently dropping usage/resume bookkeeping.
+		d.log.Warn("create session", "issue", iss.Number, "err", serr.Error())
+	}
 
 	buildCtx, cancel := context.WithCancel(ctx)
 	rs := &runState{
-		issue:    iss.Number,
-		provider: model.Provider,
-		model:    model,
-		stage:    "build",
-		cancel:   cancel,
-		failures: failures,
-		lastDiff: carryDiff,
+		issue:     iss.Number,
+		provider:  model.Provider,
+		model:     model,
+		stage:     "build",
+		sessionID: opts.resumeID,
+		cancel:    cancel,
+		failures:  opts.failures,
+		escalated: opts.escalated,
 	}
 	d.mu.Lock()
 	d.running[iss.Number] = rs
@@ -88,17 +106,17 @@ func (d *Daemon) startBuild(ctx context.Context, iss *gh.Issue, disp scheduler.D
 	d.logEvent(ctx, iss.Number, "dispatch", fmt.Sprintf("build #%d with %s (%s)", iss.Number, model.ID, disp.Reason))
 	d.notify(ctx, fmt.Sprintf("▶ #%d building with %s", iss.Number, model.ID))
 
-	go d.runBuild(buildCtx, sessionID, epicNum, iss, model, carryDiff)
+	go d.runBuild(buildCtx, sessionID, epicNum, iss, model, opts.resumeID)
 }
 
 // runBuild executes the pipeline Build stage in a goroutine and reports the
 // outcome back to the loop. It never mutates daemon state directly (that is the
 // loop's job); it only sends an evBuildDone.
-func (d *Daemon) runBuild(ctx context.Context, sessionID int64, epicNum int, iss *gh.Issue, model core.Model, carryDiff string) {
-	k := d.knowledgeFor(iss, carryDiff)
+func (d *Daemon) runBuild(ctx context.Context, sessionID int64, epicNum int, iss *gh.Issue, model core.Model, resumeID string) {
+	k := d.knowledgeFor(iss, resumeID)
 	res, err := d.deps.Stages.Build(ctx, epicNum, iss, k, 0)
 
-	done := buildDone{issue: iss.Number, result: res, err: err, diff: res.SessionID}
+	done := buildDone{issue: iss.Number, result: res, err: err, sessionID: res.SessionID}
 	// A cancelled context means /stop or shutdown; flag it so the loop preserves
 	// the worktree and does not treat it as a verification failure.
 	if ctx.Err() != nil {
@@ -144,17 +162,26 @@ func (d *Daemon) onBuildDone(ctx context.Context, done buildDone) {
 	// runner errors. Both revert to approved via the pipeline already; we drive
 	// retry/escalation here.
 	failures := 1
+	alreadyEscalated := false
 	if rs != nil {
 		failures = rs.failures + 1
+		alreadyEscalated = rs.escalated
 	}
 	verFail := errors.Is(done.err, pipeline.ErrVerificationFailed)
 	d.logEvent(ctx, done.issue, "build", fmt.Sprintf("failed (attempt %d): %s", failures, done.err.Error()))
+
+	// If we have already escalated this issue once, do not retry or escalate
+	// again — hand it to a human (spec: exactly one escalation re-dispatch).
+	if alreadyEscalated {
+		d.notify(ctx, fmt.Sprintf("✗ #%d failed after escalation; needs a decision (retry/reassign/skip)", done.issue))
+		return
+	}
 
 	if failures <= maxAutoRetries {
 		// Automatic retry without escalation: re-dispatch same model, carrying
 		// the diff forward so the runner resumes rather than restarts.
 		d.notify(ctx, fmt.Sprintf("↻ #%d retry %d/%d", done.issue, failures, maxAutoRetries))
-		d.redispatch(ctx, done.issue, modelOrZero(rs), done.diff, failures)
+		d.redispatch(ctx, done.issue, modelOrZero(rs), done.sessionID, failures)
 		return
 	}
 
@@ -163,9 +190,9 @@ func (d *Daemon) onBuildDone(ctx context.Context, done buildDone) {
 	if verFail {
 		if next, ok := d.deps.Stages.EscalateModel(modelOrZero(rs)); ok {
 			d.logEvent(ctx, done.issue, "escalate", fmt.Sprintf("%s → %s after %d verification failures", modelIDOrDash(rs), next.ID, failures))
-			d.notify(ctx, fmt.Sprintf("⤴ #%d escalating to %s (carrying prior diff)", done.issue, next.ID))
+			d.notify(ctx, fmt.Sprintf("⤴ #%d escalating to %s (resuming prior session)", done.issue, next.ID))
 			if d.passCostGate(ctx, done.issue, next, "build") {
-				d.startEscalatedBuild(ctx, done.issue, next, done.diff, failures)
+				d.startEscalatedBuild(ctx, done.issue, next, done.sessionID, failures)
 			}
 			return
 		}
@@ -190,7 +217,10 @@ func (d *Daemon) onBuildSuccess(ctx context.Context, done buildDone) {
 	green := true
 	d.logEvent(ctx, done.issue, "build", fmt.Sprintf("succeeded; PR #%d; moving to review", done.result.PRNumber))
 
-	rev, err := d.deps.Stages.Review(ctx, epicNum, iss, done.result.PRNumber, done.result.Model, done.diff, green)
+	// The pipeline's Review fetches its own unified diff (it is diff-scoped and
+	// reads the PR, not the repo), so the daemon passes an empty diff here rather
+	// than a value BuildResult does not provide.
+	rev, err := d.deps.Stages.Review(ctx, epicNum, iss, done.result.PRNumber, done.result.Model, "", green)
 	if err != nil {
 		d.notify(ctx, fmt.Sprintf("#%d review error: %s", done.issue, err.Error()))
 		return
@@ -204,8 +234,10 @@ func (d *Daemon) onBuildSuccess(ctx context.Context, done buildDone) {
 }
 
 // redispatch re-runs a build for an issue after an automatic retry, reusing the
-// same model and carrying the prior diff forward.
-func (d *Daemon) redispatch(ctx context.Context, issue int, model core.Model, diff string, failures int) {
+// same model and resuming the prior CLI session (so the runner continues its
+// work). The retry is NOT an escalation, so the escalated flag stays false and a
+// later failure can still escalate once.
+func (d *Daemon) redispatch(ctx context.Context, issue int, model core.Model, resumeID string, failures int) {
 	iss, err := d.deps.GH.GetIssue(ctx, d.cfg.Repo, issue)
 	if err != nil {
 		d.log.Warn("get issue for retry", "issue", issue, "err", d.red.Redact(err.Error()))
@@ -218,18 +250,23 @@ func (d *Daemon) redispatch(ctx context.Context, issue int, model core.Model, di
 		}
 		model = decision.Winner.Option.Model
 	}
-	d.startBuild(ctx, iss, scheduler.Dispatch{Issue: issue, Provider: model.Provider, Reason: "retry"}, model, diff, failures)
+	d.startBuild(ctx, iss, scheduler.Dispatch{Issue: issue, Provider: model.Provider, Reason: "retry"}, model,
+		dispatchOpts{resumeID: resumeID, failures: failures})
 }
 
-// startEscalatedBuild re-dispatches with a stronger model, carrying the failed
-// diff forward (spec: "re-dispatch carrying failed diff + notes forward").
-func (d *Daemon) startEscalatedBuild(ctx context.Context, issue int, model core.Model, diff string, failures int) {
+// startEscalatedBuild re-dispatches with a stronger model, resuming the failed
+// build's CLI session so the escalated runner carries prior work + notes forward
+// (spec: "re-dispatch carrying failed diff + notes forward") rather than
+// restarting. It marks the run escalated so a subsequent failure goes to a human
+// rather than escalating a second time.
+func (d *Daemon) startEscalatedBuild(ctx context.Context, issue int, model core.Model, resumeID string, failures int) {
 	iss, err := d.deps.GH.GetIssue(ctx, d.cfg.Repo, issue)
 	if err != nil {
 		d.log.Warn("get issue for escalation", "issue", issue, "err", d.red.Redact(err.Error()))
 		return
 	}
-	d.startBuild(ctx, iss, scheduler.Dispatch{Issue: issue, Provider: model.Provider, Reason: "escalation"}, model, diff, failures)
+	d.startBuild(ctx, iss, scheduler.Dispatch{Issue: issue, Provider: model.Provider, Reason: "escalation"}, model,
+		dispatchOpts{resumeID: resumeID, failures: failures, escalated: true})
 }
 
 // maybeAssemble runs the assemble stage when every child of the epic has landed.

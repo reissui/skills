@@ -111,20 +111,22 @@ func (d *Daemon) steer(ctx context.Context, issue int, text string) string {
 		return "empty steer ignored"
 	}
 
-	// Active runner: stash the steer so the next turn injects it. The running
-	// build goroutine picks it up via the runState; if the current turn is
-	// mid-flight, we mark it for the resumed session.
+	// Active runner: deliver the steer as a resumed turn. Snapshot the fields we
+	// need under the lock (never touch *runState unlocked — the loop and the
+	// steer-completion goroutine both access it) and hand copies to injectSteer.
 	d.mu.Lock()
 	rs, running := d.running[issue]
+	var model core.Model
+	var resumeID string
 	if running {
-		rs.steer = text
+		model = rs.model
+		resumeID = rs.sessionID
 	}
 	d.mu.Unlock()
 	if running {
-		d.logEvent(ctx, issue, "steer", "queued for active runner as next resumed turn")
+		d.logEvent(ctx, issue, "steer", "delivered to active runner as a resumed turn")
 		d.notify(ctx, fmt.Sprintf("↳ steer queued for #%d (active runner)", issue))
-		// Inject immediately as a resumed turn using the runner's session id.
-		d.injectSteer(ctx, rs, text)
+		d.injectSteer(ctx, issue, model, resumeID, text)
 		return fmt.Sprintf("steer delivered to active runner #%d", issue)
 	}
 
@@ -145,26 +147,35 @@ func (d *Daemon) steer(ctx context.Context, issue int, text string) string {
 	return d.steerIdleIssue(ctx, iss, text)
 }
 
-// injectSteer runs one resumed turn against the active runner, feeding the
-// steering text as the prompt and resuming the CLI session so context is
-// preserved (spec: Resume, don't restart). Errors are logged, not fatal.
-func (d *Daemon) injectSteer(ctx context.Context, rs *runState, text string) {
-	runner, err := d.deps.RunnerFactory.RunnerFor(rs.model)
+// injectSteer delivers steering text to an active runner as a resumed turn: it
+// runs the runner with the steering prompt and the build's CLI session id so the
+// model continues its existing session (spec: Resume, don't restart). All
+// arguments are passed by value (snapshotted under d.mu by the caller) so this
+// never touches the shared *runState unlocked.
+//
+// Serialization note: the resumed turn shares the issue's worktree and CLI
+// session with the in-flight build. The runner adapters resume a single CLI
+// session id, so the provider serializes turns on that session; the daemon does
+// not launch an independent, unrelated process. The terminal session id is
+// written back under d.mu so subsequent resumes (further steers, retries) chain
+// correctly.
+func (d *Daemon) injectSteer(ctx context.Context, issue int, model core.Model, resumeID, text string) {
+	runner, err := d.deps.RunnerFactory.RunnerFor(model)
 	if err != nil {
-		d.log.Warn("steer: runner for model", "model", rs.model.ID, "err", err.Error())
+		d.log.Warn("steer: runner for model", "model", model.ID, "err", err.Error())
 		return
 	}
 	task := core.Task{
 		Repo:     d.cfg.Repo.String(),
-		Issue:    rs.issue,
+		Issue:    issue,
 		Prompt:   "Steering update from the owner: " + text,
-		ResumeID: rs.sessionID,
+		ResumeID: resumeID,
 	}
-	dir := d.worktreeDir(rs.issue)
+	dir := d.worktreeDir(issue)
 	go func() {
 		ch, err := runner.Run(ctx, task, dir)
 		if err != nil {
-			d.log.Warn("steer: run", "issue", rs.issue, "err", d.red.Redact(err.Error()))
+			d.log.Warn("steer: run", "issue", issue, "err", d.red.Redact(err.Error()))
 			return
 		}
 		// Drain events; the resumed turn's output is folded into the ongoing
@@ -172,7 +183,7 @@ func (d *Daemon) injectSteer(ctx context.Context, rs *runState, text string) {
 		for ev := range ch {
 			if ev.Type == core.EventResult && ev.SessionID != "" {
 				d.mu.Lock()
-				if cur := d.running[rs.issue]; cur != nil {
+				if cur := d.running[issue]; cur != nil {
 					cur.sessionID = ev.SessionID
 				}
 				d.mu.Unlock()

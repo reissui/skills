@@ -37,11 +37,16 @@ type loopEvent struct {
 
 // buildDone reports the outcome of a build goroutine back to the loop.
 type buildDone struct {
-	issue   int
-	result  pipeline.BuildResult
-	err     error
-	diff    string // the diff produced (for review or escalation carry-forward)
-	stopped bool   // true when the build was cancelled by /stop or shutdown
+	issue  int
+	result pipeline.BuildResult
+	err    error
+	// sessionID is the runner CLI session id from the build. It is the
+	// carry-forward handle for retry/escalation: the re-dispatched runner RESUMES
+	// this session (spec: "Resume, don't restart"), so it re-enters with all the
+	// prior work — including the diff it already produced — rather than a literal
+	// diff blob (BuildResult exposes no diff). Review fetches its own diff.
+	sessionID string
+	stopped   bool // true when the build was cancelled by /stop or shutdown
 }
 
 // Run drives the daemon until ctx is cancelled. It performs crash recovery,
@@ -99,16 +104,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 }
 
-// enqueue posts an event to the loop, dropping it only if the daemon is
-// shutting down (ctx-cancelled channel readers exit). The buffered channel makes
-// this non-blocking in the common case.
+// enqueue posts an event to the loop. The buffered channel makes this
+// non-blocking in the common case; under a burst that fills the buffer, the send
+// is completed by a short-lived goroutine that also watches the stopped channel,
+// so a parked event is abandoned on shutdown instead of leaking a goroutine
+// forever (the loop stops reading d.events once it returns).
 func (d *Daemon) enqueue(ev loopEvent) {
 	select {
 	case d.events <- ev:
+	case <-d.stopped:
 	default:
-		// Channel full: run synchronously would risk deadlock, so spawn a small
-		// goroutine to block-send. This is rare (bursty control traffic).
-		go func() { d.events <- ev }()
+		go func() {
+			select {
+			case d.events <- ev:
+			case <-d.stopped:
+			}
+		}()
 	}
 }
 

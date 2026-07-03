@@ -69,6 +69,10 @@ func (d *Daemon) ApplyWhenQuiesced(ctx context.Context, apply func() error) erro
 func (d *Daemon) shutdown() {
 	d.log.Info("clexd shutting down")
 
+	// Signal enqueue's backpressure goroutines to abandon parked events; the loop
+	// stops reading d.events after this returns.
+	close(d.stopped)
+
 	// Snapshot and clear the running set under lock.
 	d.mu.Lock()
 	running := make([]*runState, 0, len(d.running))

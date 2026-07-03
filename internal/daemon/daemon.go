@@ -107,10 +107,11 @@ type runState struct {
 	// failures counts verification failures observed for this issue in this
 	// daemon lifetime; at maxAutoRetries+1 the daemon escalates.
 	failures int
-	// lastDiff is the failed diff carried forward into an escalation re-dispatch.
-	lastDiff string
-	// steer is a pending steering line to inject as the next turn, if any.
-	steer string
+	// escalated reports that this issue has ALREADY been escalated once. It is
+	// carried across re-dispatches so a failing escalated build does not escalate
+	// a second time (spec: exactly one escalation re-dispatch) — it goes to a
+	// human decision instead.
+	escalated bool
 }
 
 // Daemon is the clexd supervisor. Construct with New; drive with Run.
@@ -122,6 +123,9 @@ type Daemon struct {
 
 	// events is the single serialized input channel to the loop.
 	events chan loopEvent
+	// stopped is closed when the loop is tearing down, so a backpressure fallback
+	// send in enqueue can abandon a parked event instead of leaking forever.
+	stopped chan struct{}
 
 	// mu guards paused and running for concurrent status reads from IPC /
 	// Telegram handlers. The loop goroutine mutates them under this lock too so
@@ -159,6 +163,7 @@ func New(deps Deps, cfg Config, log *slog.Logger, red *Redactor) (*Daemon, error
 		log:     log,
 		red:     red,
 		events:  make(chan loopEvent, 64),
+		stopped: make(chan struct{}),
 		running: make(map[int]*runState),
 	}, nil
 }
