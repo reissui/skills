@@ -1,0 +1,4 @@
+NAME                 ID              SIZE      MODIFIED
+qwen3-coder:latest   abc123def456    4.7 GB    2 days ago
+llama3.2:3b          0a8c26691023    2.0 GB    3 weeks ago
+deepseek-r1:14b      c333b7232bdb    9.0 GB    5 weeks ago

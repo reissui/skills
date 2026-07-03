@@ -42,6 +42,11 @@ type Adapter struct {
 	// env is the fully-resolved, allowlisted child environment. When nil, it is
 	// computed once, lazily, from the parent process via childEnv.
 	env []string
+	// extraArgs are additional global codex flags injected into the exec argv
+	// (after the base config flags, before the prompt). The local adapter uses
+	// this to add `--oss` so `codex exec` targets Ollama instead of the cloud —
+	// same adapter shape, no forked parsing (spec: Runner adapters — local).
+	extraArgs []string
 }
 
 // Option configures an Adapter at construction.
@@ -58,6 +63,16 @@ func WithBinary(path string) Option {
 // Tests use this for deterministic, hermetic child environments.
 func WithEnv(env []string) Option {
 	return func(a *Adapter) { a.env = append([]string(nil), env...) }
+}
+
+// WithExtraArgs appends extra global codex flags to every exec invocation. They
+// are inserted after the base config flags and before the prompt (and before the
+// resume subcommand), so the prompt stays the final positional argument. The
+// local adapter passes "--oss" here to drive `codex exec` against Ollama without
+// duplicating the exec/parse machinery (spec: Runner adapters — local uses the
+// same adapter shape).
+func WithExtraArgs(args ...string) Option {
+	return func(a *Adapter) { a.extraArgs = append(a.extraArgs, args...) }
 }
 
 // New constructs a codex Adapter for the given model id. Pass WithBinary in
@@ -151,6 +166,9 @@ func (a *Adapter) buildArgs(task core.Task, dir string) []string {
 		// Codex has no dedicated effort flag; it is a config override.
 		args = append(args, "-c", "model_reasoning_effort="+effort)
 	}
+	// Injected global flags (e.g. --oss for the local adapter) go here so they
+	// precede the prompt/resume tail and the prompt remains the last positional.
+	args = append(args, a.extraArgs...)
 
 	if task.ResumeID != "" {
 		// `codex exec resume <SESSION_ID> <PROMPT>`: the resume subcommand and
