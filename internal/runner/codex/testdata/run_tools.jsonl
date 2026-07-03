@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"019f2786-d4f3-7c91-8788-4cbeb332ae46"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I'll run the command."}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"echo hello","aggregated_output":"hello\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Done: hello"}}
+{"type":"turn.completed","usage":{"input_tokens":20481,"cached_input_tokens":4096,"output_tokens":58,"reasoning_output_tokens":40}}
