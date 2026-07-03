@@ -112,7 +112,11 @@ Adapters (all shell out to official binaries, parse their JSON stream):
 - **codex** — `codex exec --json`; resume via `codex exec resume`.
 - **local** — `codex --oss` against Ollama (probe via `ollama list`); same adapter shape.
 
-The **model registry** aggregates `Probe()` results plus clex's own usage accounting (parsing rate-limit errors and tracking the 5-hour/weekly windows heuristically) so Telegram model pickers always show what is actually available, with headroom hints.
+**Providers are pluggable and disposable.** No provider is hardwired to any role: clex must run fully with only Claude registered, only Codex, or neither subscription (local models only, degraded but functional). Providers and models are declared in config; dropping a subscription means deleting a config block, nothing else. When multiple providers are registered, all of them are used — spread across tiers, cross-review, and fallback — alongside local models.
+
+Each model declares a **billing mode**: `subscription` (consumes rate windows, costs no marginal money), `metered` (pay-per-token — e.g. Fable 5 from 2026-07-07), or `free` (local). Billing mode drives cost gates (see Routing) and restriction policies — a model like Fable 5 can be kept registered but fenced to explicitly-confirmed uses.
+
+The **model registry** aggregates `Probe()` results plus clex's own usage accounting (parsing rate-limit errors and tracking the 5-hour/weekly windows heuristically) so Telegram model pickers always show what is actually available, with headroom hints. **Ollama is auto-detected**: if the binary/daemon is present, its installed models are discovered via `ollama list` and offered for tier assignment automatically (sensible defaults, overridable) — pulling a new local model makes it available without touching config.
 
 ### 5. Skills layer
 
@@ -132,6 +136,9 @@ Long-polling (works behind NAT, no server). Single authorized chat id (enforced)
 - **Every question ships with a proposed answer.** The recommended answer is always the first inline button — the default path is a single tap. `[✓ auth via magic link] [alter…] [skip]`. Tapping *alter* prompts for a one-line reply. The bot never asks an open question it could propose an answer to.
 - **Questions are batched at the plan gate.** During research/planning the planner accumulates its open questions and proposed answers; the bot presents them as one numbered message, confirmable with a single *Confirm all* tap or altered per item. Mid-build questions are an escalation of last resort (a builder hitting one is usually an issue-lint failure to learn from).
 - **Silence is the default.** Between gates, only state changes worth acting on are sent (PR opened, failure, cap reached). Everything else is available on demand via `/status`.
+- **It answers when asked.** Terse-by-default doesn't mean mute: a direct question ("why did #42 escalate?", "what's left on the epic?") gets a concise answer from a cheap model with access to pipeline state and `LOG.md`. Answering never blocks or touches the running pipeline.
+- **Images queue, they don't interrupt.** Photos/screenshots (single or albums) sent mid-process attach to the active idea — or to whichever issue/epic the message replies to — and are queued as context for that item's next stage. Nothing running is disturbed; the bot acknowledges with one line (`2 images queued for #42`).
+- **Anything can be interrupted.** Every progress line carries a `[stop]` action, and `/stop <issue>` works from anywhere. Stopping cancels the runner, reverts the issue to its previous label, and preserves the worktree so a later retry can resume rather than restart. `/pause` remains the global switch.
 
 **Surfaces:**
 
@@ -142,13 +149,30 @@ Long-polling (works behind NAT, no server). Single authorized chat id (enforced)
 
 ### 7. Routing: model tiers and the escalation ladder
 
-Models are declared in config as **tiers**, not just providers:
+Models are declared in config as **tiers**, not just providers. Tiers are pure configuration: any model from any provider can occupy any tier, and every role must keep working when only one provider exists. `clex doctor` validates that each role (`plan`, `build`, `review`, `lint`) resolves to at least one healthy model and warns on gaps.
 
 ```toml
+[providers.claude]
+kind = "claude-cli"                    # delete this block = Claude gone, nothing breaks
+
+[providers.codex]
+kind = "codex-cli"
+
+[providers.ollama]
+kind       = "ollama"
+autodetect = true                      # discovered models join the local tier
+
+[models]
+fable-5     = { provider = "claude", billing = "metered" }      # metered from 2026-07-07
+opus-4-8    = { provider = "claude", billing = "subscription" }
+gpt-5-5     = { provider = "codex",  billing = "subscription" }
+sonnet-5    = { provider = "claude", billing = "subscription" }
+qwen3-coder = { provider = "ollama", billing = "free" }
+
 [tiers]
-top     = ["fable-5", "opus-4-8", "gpt-5-5"]      # plan, review, hard escalations
+top     = ["opus-4-8", "gpt-5-5", "fable-5"]       # plan, review, hard escalations
 mid     = ["sonnet-5", "codex-mini"]               # moderate builds, issue lint
-local   = ["qwen3-coder", "hermes-4"]              # default builders (free)
+local   = ["qwen3-coder"]                          # default builders (free)
 
 [routing]
 plan     = "top"          # research/PRD/issues always use a top model
@@ -161,12 +185,22 @@ lint     = "mid"
 - **Escalation ladder:** a builder that fails its verification command twice is stopped; the issue escalates one tier, and the failed attempt's diff plus failure notes are handed to the next model (no restart from zero). Escalations surface in Telegram as `[retry] [escalate model] [skip]`.
 - **Token accounting:** the registry records per-provider usage and estimated spend per issue/epic; `/costs` and `clex status` report it, and the plan gate shows the estimated model mix before approval.
 
+**Cost gates (metered models).** Before dispatching any stage to a `metered` model, clex estimates its cost (issue size, stage type, and historical per-stage averages kept in SQLite). Below the configured threshold it proceeds silently and logs the estimate; above it, the stage holds and Telegram asks once: `#42 plan on fable-5 · est. $6.20 — [✓ proceed] [swap model] [hold]`.
+
+```toml
+[budget]
+confirm_over_usd  = 2.00    # metered estimates above this require confirmation
+max_usd_per_epic  = 25.00   # optional hard cap; reaching it pauses the epic
+```
+
+`subscription` and `free` models bypass cost gates entirely (they cost windows, not money) — headroom warnings cover them instead. Estimates are heuristic and improve as SQLite accumulates real per-stage history; actuals are always recorded against estimates so drift is visible in `/costs`.
+
 ### 8. Review policy
 
 Review is where premium tokens buy safety:
 
 - **Mandatory top-tier review** for any PR authored below the top tier (i.e. anything not Opus 4.8+/GPT-5.5+/Fable 5). This is non-negotiable in config (`review.required_below_tier = true` by default).
-- Top-tier-authored PRs get **cross-review by a different top provider** (e.g. `@codex review` on Claude-authored PRs) — different model, different blind spots.
+- Top-tier-authored PRs get **cross-review by a different top provider** (e.g. `@codex review` on Claude-authored PRs) — different model, different blind spots. If only one top-tier provider is registered, this degrades gracefully to a fresh-context, review-only session on the same provider.
 - Reviews run on the **diff plus the issue's acceptance criteria**, not the whole repo. Findings post as PR comments; the authoring runner is re-invoked once to address them (escalating one tier if it was a local model that can't). Merge remains manual in v1 (auto-merge on green is a config flag, default off).
 
 ## Context & token economy
@@ -185,7 +219,7 @@ Nothing is researched twice; no model reads more than its task needs.
 
 ## Configuration
 
-- Global: `~/.clex/config.toml` — Telegram token + chat id, provider caps, routing rules, worktree root.
+- Global: `~/.clex/config.toml` — Telegram token + chat id, providers/models (with billing modes), tiers, routing, budget thresholds, provider caps, worktree root.
 - Per-repo: `.clex/config.toml` — head branch (default `main`), verification defaults, repo-specific routing/skills.
 - Secrets via environment or config, never passed into prompts. `ANTHROPIC_API_KEY` is explicitly **unset** in runner environments so subscription auth cannot silently switch to pay-per-token API billing.
 
@@ -209,7 +243,7 @@ Anthropic permits Max/Pro subscription usage only through the official `claude` 
 
 ## v1 scope
 
-Included: daemon + CLI, GitHub-labels state machine, dependency/touches-aware parallel scheduler, claude/codex/local runner adapters, model registry with tier routing + escalation ladder + token accounting, bundled skill pack (incl. clex-plan dumb-issue contract and clex-issue-lint), repo knowledge files (MAP/PATTERNS/LOG), Telegram intake/gates/notifications with confirm-or-alter UX, mandatory below-tier review + top-tier cross-review, pause/resume, doctor.
+Included: daemon + CLI, GitHub-labels state machine, dependency/touches-aware parallel scheduler, claude/codex/local runner adapters with hot-swappable provider config + billing modes + cost gates, Ollama autodetect, model registry with tier routing + escalation ladder + token accounting, bundled skill pack (incl. clex-plan dumb-issue contract and clex-issue-lint), repo knowledge files (MAP/PATTERNS/LOG), Telegram intake/gates/notifications with confirm-or-alter UX + on-demand Q&A + image queueing + per-task stop, mandatory below-tier review + top-tier cross-review (single-provider fallback), pause/resume, doctor.
 
 Deferred: external-agent webhook adapter (Hermes/OpenClaw-style), web dashboard, auto-merge-by-default, multi-user, non-GitHub forges.
 
