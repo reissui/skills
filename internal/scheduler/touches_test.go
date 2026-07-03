@@ -18,6 +18,9 @@ func TestOverlaps(t *testing.T) {
 		{"leading wildcard overlaps", []string{"**/x.go"}, []string{"internal/store/**"}, true},
 		{"sibling packages disjoint", []string{"internal/runner/claude/**"}, []string{"internal/runner/codex/**"}, false},
 		{"same top different sub", []string{"internal/runner/**"}, []string{"internal/runner/codex/**"}, true},
+		{"prefix-name siblings disjoint", []string{"internal/gh/**"}, []string{"internal/ghost/**"}, false},
+		{"multi-glob any-overlap", []string{"internal/a/**", "internal/gh/**"}, []string{"internal/z/**", "internal/gh/x.go"}, true},
+		{"multi-glob no-overlap", []string{"internal/a/**", "internal/b/**"}, []string{"internal/y/**", "internal/z/**"}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
