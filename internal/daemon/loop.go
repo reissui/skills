@@ -2,11 +2,9 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/reissui/clex/internal/core"
 	"github.com/reissui/clex/internal/gh"
 	"github.com/reissui/clex/internal/pipeline"
 	"github.com/reissui/clex/internal/scheduler"
@@ -268,9 +266,3 @@ func (d *Daemon) notify(ctx context.Context, text string) {
 		d.log.Warn("telegram send", "err", d.red.Redact(err.Error()))
 	}
 }
-
-// errIs is a small helper to match wrapped pipeline sentinels.
-func errIs(err, target error) bool { return errors.Is(err, target) }
-
-// ensure core is referenced (used across loop files).
-var _ = core.StateBuilding

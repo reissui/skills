@@ -208,16 +208,6 @@ func (f *fakeTG) Handle(name string, h telegram.CommandHandler) {
 	f.handlers[name] = h
 }
 
-// invoke runs a registered command handler (test helper).
-func (f *fakeTG) invoke(ctx context.Context, name, args string) {
-	f.mu.Lock()
-	h := f.handlers[name]
-	f.mu.Unlock()
-	if h != nil {
-		h(ctx, args)
-	}
-}
-
 // sentContains reports whether any sent line contains sub (test helper).
 func (f *fakeTG) sentContains(sub string) bool {
 	f.mu.Lock()
@@ -238,21 +228,15 @@ func (f *fakeTG) queueAnswer(a telegram.Answer) {
 
 // ---- fake runner + factory --------------------------------------------------
 
-// fakeRunner is a scripted core.Runner. It records the environment it would run
-// under (to prove the child-env allowlist) and emits a scripted terminal event.
-// Because the daemon never hands a runner the parent env directly — the real
-// adapters build an allowlisted env internally — this fake asserts the SECURITY
-// property from the daemon's side: whatever the daemon passes as Task/dir, the
-// runner sees no seeded canary in its own resolved environment.
+// fakeRunner is a scripted core.Runner. It records the tasks it was handed (to
+// assert steer resume ids and prompts) and emits a scripted terminal event. The
+// child-env allowlist is proven separately against the REAL claude adapter in
+// TestChildEnvAllowlistDropsCanary, which is where that boundary actually lives.
 type fakeRunner struct {
 	mu        sync.Mutex
 	runs      []core.Task
-	envSeen   []string // os.Environ() snapshot the runner observed at Run time
 	sessionID string
-	failFirst bool // fail the first run (verification), succeed after
 	runCount  int
-	// capturedEnvFn lets the test inspect what env a real adapter WOULD build.
-	capturedEnvFn func() []string
 }
 
 func (r *fakeRunner) Run(ctx context.Context, task core.Task, _ string) (<-chan core.Event, error) {
@@ -260,13 +244,6 @@ func (r *fakeRunner) Run(ctx context.Context, task core.Task, _ string) (<-chan 
 	r.runs = append(r.runs, task)
 	r.runCount++
 	n := r.runCount
-	// Snapshot the process env the runner is exposed to. A correct allowlisting
-	// adapter would filter this; the daemon's contract is that it does not inject
-	// the parent env into the Task. We record the ambient env to assert the
-	// canary is not smuggled via the Task fields.
-	if r.capturedEnvFn != nil {
-		r.envSeen = r.capturedEnvFn()
-	}
 	sid := r.sessionID
 	if sid == "" {
 		sid = fmt.Sprintf("sess-%d", n)

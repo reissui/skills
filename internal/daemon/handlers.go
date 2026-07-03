@@ -9,7 +9,6 @@ import (
 
 	"github.com/reissui/clex/internal/core"
 	"github.com/reissui/clex/internal/ipc"
-	"github.com/reissui/clex/internal/registry"
 )
 
 // Handle implements ipc.Handler: it maps a control Request from the clex CLI to
@@ -191,6 +190,3 @@ func renderModels(models []ipc.ModelHealth) string {
 	}
 	return b.String()
 }
-
-// availableForDisplay is retained for potential future role-scoped listings.
-var _ = registry.RunOption{}

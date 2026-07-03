@@ -147,7 +147,7 @@ func (d *Daemon) onBuildDone(ctx context.Context, done buildDone) {
 	if rs != nil {
 		failures = rs.failures + 1
 	}
-	verFail := errIs(done.err, pipeline.ErrVerificationFailed)
+	verFail := errors.Is(done.err, pipeline.ErrVerificationFailed)
 	d.logEvent(ctx, done.issue, "build", fmt.Sprintf("failed (attempt %d): %s", failures, done.err.Error()))
 
 	if failures <= maxAutoRetries {
