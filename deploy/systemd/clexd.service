@@ -1,0 +1,61 @@
+# systemd unit for the clex daemon (Linux).
+#
+# Install (as the dedicated clex user, or edit User=/Group= below):
+#   sudo cp deploy/systemd/clexd.service /etc/systemd/system/clexd.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now clexd.service
+#
+# `clex service install` generates and loads this for you. The daemon needs no
+# open ports (it long-polls GitHub and Telegram). Provide credentials via an
+# EnvironmentFile so the token never lives in this unit; that file should be
+# 0600 and owned by the clex user.
+#
+# The security hardening below mirrors the spec's least-privilege posture:
+# clex runs model-generated code, so the service itself is confined and its
+# home (~/.clex) is the only writable location it needs.
+
+[Unit]
+Description=clex daemon (agentic development orchestrator)
+Documentation=https://github.com/reissui/clex
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as a dedicated, unprivileged user on shared machines (spec: Security).
+User=clex
+Group=clex
+
+# Credentials and settings. GITHUB_TOKEN (a fine-grained PAT) lives here, 0600.
+#   GITHUB_TOKEN=github_pat_...
+#   CLEX_REPO=owner/name
+#   CLEX_SELF_LOGIN=clex-bot
+EnvironmentFile=/etc/clex/clexd.env
+
+ExecStart=/usr/local/bin/clexd --repo ${CLEX_REPO}
+
+# Restart on crash; the daemon is crash-safe (state is reconstructed from GitHub
+# labels on startup), so an unclean restart re-derives in-flight work.
+Restart=on-failure
+RestartSec=5s
+
+# Graceful shutdown: SIGTERM lets the daemon cancel runners, revert their labels,
+# and flush the store before exit. Give it room to finish that cleanly.
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+# --- Hardening (least privilege) ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+# The daemon's only writable state lives under its home directory.
+ReadWritePaths=/home/clex/.clex
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
