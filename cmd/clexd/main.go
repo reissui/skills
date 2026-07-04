@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/reissui/clex/internal/config"
 	"github.com/reissui/clex/internal/daemon"
@@ -37,8 +38,11 @@ Flags:
 
 The daemon long-polls GitHub and Telegram (no public endpoint required),
 schedules eligible issues, and supervises runner processes. The GitHub token is
-read from GITHUB_TOKEN or GH_TOKEN (use a fine-grained PAT scoped to the managed
-repos). See docs/superpowers/specs/2026-07-03-clex-design.md for the full design.
+read from GITHUB_TOKEN or GH_TOKEN, falling back to the gh CLI (gh auth token)
+when neither is set — so authenticating gh is sufficient. For a server
+deployment, prefer a fine-grained PAT scoped to the managed repos via
+GITHUB_TOKEN. See docs/superpowers/specs/2026-07-03-clex-design.md for the full
+design.
 `
 
 func main() {
@@ -113,12 +117,9 @@ func boot(repoArg, configPath, homeArg string, log *slog.Logger) error {
 		log.Warn("config", "warning", w.Message)
 	}
 
-	token := os.Getenv("GITHUB_TOKEN")
-	if token == "" {
-		token = os.Getenv("GH_TOKEN")
-	}
-	if token == "" {
-		return fmt.Errorf("no GitHub token: set GITHUB_TOKEN or GH_TOKEN")
+	token, err := resolveGitHubToken(os.Getenv, gh.TokenFromGH)
+	if err != nil {
+		return err
 	}
 	self := os.Getenv("CLEX_SELF_LOGIN")
 	ghc, err := gh.New(token, gh.WithSelfLogin(self))
@@ -174,6 +175,28 @@ func boot(repoArg, configPath, homeArg string, log *slog.Logger) error {
 	}()
 
 	return d.Run(ctx)
+}
+
+// resolveGitHubToken picks the daemon's GitHub token: an explicit GITHUB_TOKEN or
+// GH_TOKEN env var wins (the server-deployment path, where a fine-grained PAT is
+// recommended), otherwise it falls back to the gh CLI's own credentials via
+// ghFallback (`gh auth token`) so simply authenticating gh is sufficient
+// end-to-end (issue #40). getenv and ghFallback are parameters so this is unit
+// tested without touching the real environment or shelling out.
+func resolveGitHubToken(getenv func(string) string, ghFallback func(context.Context) (string, error)) (string, error) {
+	if tok := getenv("GITHUB_TOKEN"); tok != "" {
+		return tok, nil
+	}
+	if tok := getenv("GH_TOKEN"); tok != "" {
+		return tok, nil
+	}
+	gctx, gcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer gcancel()
+	tok, err := ghFallback(gctx)
+	if err != nil {
+		return "", fmt.Errorf("no GitHub token: set GITHUB_TOKEN or GH_TOKEN, or run `gh auth login` (%v)", err)
+	}
+	return tok, nil
 }
 
 // allowedUserIDs derives the authorized Telegram user id set. clex authorizes

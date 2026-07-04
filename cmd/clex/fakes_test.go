@@ -34,6 +34,10 @@ func newTestEnv(t *testing.T) *env {
 		goos:         "darwin",
 		ghToken:      func(context.Context) (string, error) { return "test-token", nil },
 		originRemote: func() (string, error) { return "git@github.com:acme/widgets.git", nil },
+		// Default: no GITHUB_TOKEN/GH_TOKEN in the environment, so doctor treats the
+		// resolved token as gh-CLI-managed. Tests that exercise the user-supplied
+		// env-token path override this.
+		getenv: func(string) string { return "" },
 	}
 }
 
@@ -150,13 +154,27 @@ func (f *fakeGH) BranchProtected(context.Context, gh.Repo, string) (bool, error)
 // ---- fake Telegram verifier -------------------------------------------------
 
 // fakeTelegram returns scripted verify/bind results and records whether Bind ran.
+// It also captures the context handed to Verify so tests can assert the wizard
+// mints a fresh deadline per network step (issue #40 fix 1): verifyErr, if set,
+// means "the context was already expired when Verify was called".
 type fakeTelegram struct {
 	verify   telegramResult
 	bind     telegramResult
 	bindCall int
+
+	// verifyCtxErr records ctx.Err() observed at the start of Verify. It stays nil
+	// when the wizard passed a live (unexpired) context, and is context.DeadlineExceeded
+	// when the wizard leaked an already-expired budget into the network step.
+	verifyCtxErr error
+	// verifyHadDeadline records whether the Verify context carried any deadline.
+	verifyHadDeadline bool
 }
 
-func (t *fakeTelegram) Verify(context.Context, string) telegramResult { return t.verify }
+func (t *fakeTelegram) Verify(ctx context.Context, _ string) telegramResult {
+	t.verifyCtxErr = ctx.Err()
+	_, t.verifyHadDeadline = ctx.Deadline()
+	return t.verify
+}
 
 func (t *fakeTelegram) Bind(context.Context, string) telegramResult {
 	t.bindCall++

@@ -99,6 +99,11 @@ Start the daemon in a terminal:
 clexd --repo owner/repo
 ```
 
+The daemon reads its GitHub token from `GITHUB_TOKEN` or `GH_TOKEN`, falling back
+to the gh CLI (`gh auth token`) when neither is set — so a `gh auth login` is
+enough for local use. For a server deployment, set `GITHUB_TOKEN` to a
+fine-grained PAT scoped to the managed repos.
+
 Submit work:
 
 ```sh
@@ -218,8 +223,12 @@ See [docs/config-reference.md](docs/config-reference.md) for every key.
 - Telegram checks the configured sender id on messages and callbacks.
 - Config, database, IPC socket, and image spool paths use owner-only
   permissions.
-- Full-permission runner modes are opt-in config choices. `clex doctor` warns on
-  over-scoped GitHub tokens and missing branch protection.
+- Full-permission runner modes are opt-in config choices. An authenticated `gh`
+  CLI is the supported happy path and passes `clex doctor` clean. `clex doctor`
+  warns about over-scoped classic tokens only when you supply one via
+  `GITHUB_TOKEN`/`GH_TOKEN` (e.g. a server deployment), where a fine-grained PAT
+  is the actionable fix; it reports branch protection as informational, not a
+  requirement.
 
 ## Troubleshooting
 

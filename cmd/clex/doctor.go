@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -11,12 +12,15 @@ import (
 	"github.com/reissui/clex/internal/gh"
 )
 
-// checkStatus is one diagnostic outcome level. ok and warn both keep the overall
-// exit at 0; problem forces exit 2 (spec: doctor exit codes).
+// checkStatus is one diagnostic outcome level. ok, info, and warn all keep the
+// overall exit at 0; problem forces exit 2 (spec: doctor exit codes). info is for
+// purely advisory findings that carry no obligation — a neutral FYI, weaker than
+// a warning (issue #40: branch protection is not a requirement for clex repos).
 type checkStatus string
 
 const (
 	statusOK      checkStatus = "ok"
+	statusInfo    checkStatus = "info"
 	statusWarn    checkStatus = "warn"
 	statusProblem checkStatus = "problem"
 )
@@ -26,6 +30,8 @@ func (s checkStatus) mark() string {
 	switch s {
 	case statusOK:
 		return "✓"
+	case statusInfo:
+		return "·"
 	case statusWarn:
 		return "!"
 	default:
@@ -183,29 +189,44 @@ func (e *env) checkGitHub(ctx context.Context, repoFlag string) []checkResult {
 	}
 
 	var out []checkResult
-	// Scope check.
-	scopes, serr := client.TokenScopes(ctx)
-	switch {
-	case serr != nil:
+	// Scope check. A gh-CLI-managed token is the supported happy path: gh's oauth
+	// scopes are not user-narrowable and the CLI itself authenticates via `gh auth
+	// token`, so warning about them is unactionable and contradicts our own auth
+	// strategy (issue #40). Only a user-supplied GITHUB_TOKEN/GH_TOKEN classic PAT
+	// gets the over-scope warning, where a fine-grained PAT is genuinely actionable.
+	if e.githubTokenIsGHManaged(token) {
 		out = append(out, checkResult{
-			Name: "github-token", Status: statusWarn,
-			Message: fmt.Sprintf("could not read token scopes: %v", serr),
+			Name: "github-token", Status: statusOK,
+			Message: "using gh CLI auth (managed by gh)",
 		})
-	case containsFold(scopes, "repo"):
-		out = append(out, checkResult{
-			Name: "github-token", Status: statusWarn,
-			Message: fmt.Sprintf("over-scoped classic token (scopes: %s)", strings.Join(scopes, ", ")),
-			Fix:     "use a fine-grained PAT scoped to the managed repo(s) instead of a classic full-`repo` token",
-		})
-	default:
-		msg := "fine-grained (no classic `repo` scope)"
-		if len(scopes) > 0 {
-			msg = "scopes: " + strings.Join(scopes, ", ")
+	} else {
+		scopes, serr := client.TokenScopes(ctx)
+		switch {
+		case serr != nil:
+			out = append(out, checkResult{
+				Name: "github-token", Status: statusWarn,
+				Message: fmt.Sprintf("could not read token scopes: %v", serr),
+			})
+		case containsFold(scopes, "repo"):
+			out = append(out, checkResult{
+				Name: "github-token", Status: statusWarn,
+				Message: fmt.Sprintf("over-scoped classic token (scopes: %s)", strings.Join(scopes, ", ")),
+				Fix:     "GITHUB_TOKEN/GH_TOKEN is a classic full-`repo` PAT; use a fine-grained PAT scoped to the managed repo(s), or unset it to use `gh auth login`",
+			})
+		default:
+			msg := "fine-grained (no classic `repo` scope)"
+			if len(scopes) > 0 {
+				msg = "scopes: " + strings.Join(scopes, ", ")
+			}
+			out = append(out, checkResult{Name: "github-token", Status: statusOK, Message: msg})
 		}
-		out = append(out, checkResult{Name: "github-token", Status: statusOK, Message: msg})
 	}
 
-	// Branch-protection check on the head branch.
+	// Branch-protection check on the head branch. This is purely informational:
+	// nothing in merge/push/pipeline logic depends on protection being enabled, and
+	// protecting main is a suggestion, not a clex requirement (issue #40). All
+	// outcomes are statusInfo so they never read as an obligation and never affect
+	// the exit code.
 	repoStr := strings.TrimSpace(repoFlag)
 	if repoStr == "" {
 		if r, ok := e.configuredRepo(); ok {
@@ -214,14 +235,14 @@ func (e *env) checkGitHub(ctx context.Context, repoFlag string) []checkResult {
 	}
 	if repoStr == "" {
 		out = append(out, checkResult{
-			Name: "branch-protection", Status: statusWarn,
+			Name: "branch-protection", Status: statusInfo,
 			Message: "no repository to check; pass --repo owner/name",
 		})
 		return out
 	}
 	repo, perr := gh.ParseRepo(repoStr)
 	if perr != nil {
-		out = append(out, checkResult{Name: "branch-protection", Status: statusWarn, Message: perr.Error()})
+		out = append(out, checkResult{Name: "branch-protection", Status: statusInfo, Message: perr.Error()})
 		return out
 	}
 	branch := e.headBranch()
@@ -229,22 +250,40 @@ func (e *env) checkGitHub(ctx context.Context, repoFlag string) []checkResult {
 	switch {
 	case berr != nil:
 		out = append(out, checkResult{
-			Name: "branch-protection", Status: statusWarn,
+			Name: "branch-protection", Status: statusInfo,
 			Message: fmt.Sprintf("could not read protection for %s@%s: %v", repo, branch, berr),
 		})
 	case !protected:
 		out = append(out, checkResult{
-			Name: "branch-protection", Status: statusWarn,
+			Name: "branch-protection", Status: statusInfo,
 			Message: fmt.Sprintf("%s branch %q is not protected", repo, branch),
-			Fix:     fmt.Sprintf("enable branch protection on %q so clex never pushes to an unprotected default branch", branch),
+			Fix:     fmt.Sprintf("consider protecting %q — optional; clex already never pushes the default branch directly", branch),
 		})
 	default:
 		out = append(out, checkResult{
-			Name: "branch-protection", Status: statusOK,
+			Name: "branch-protection", Status: statusInfo,
 			Message: fmt.Sprintf("%s@%s is protected", repo, branch),
 		})
 	}
 	return out
+}
+
+// githubTokenIsGHManaged reports whether the resolved GitHub token is managed by
+// the gh CLI rather than supplied by the user via GITHUB_TOKEN/GH_TOKEN. A
+// gh-managed token is either an oauth token (gho_ prefix, what `gh auth login`
+// mints) or any token resolved when no GITHUB_TOKEN/GH_TOKEN is set in the
+// environment (so the source was `gh auth token`'s own stored credentials).
+// User-supplied env tokens are not gh-managed — they can be narrowed to a
+// fine-grained PAT, so the over-scope warning stays actionable for them.
+func (e *env) githubTokenIsGHManaged(token string) bool {
+	if strings.HasPrefix(token, "gho_") {
+		return true
+	}
+	getenv := e.getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	return getenv("GITHUB_TOKEN") == "" && getenv("GH_TOKEN") == ""
 }
 
 // headBranch is the target branch doctor checks for protection: the configured

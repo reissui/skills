@@ -64,6 +64,10 @@ type env struct {
 	// `git remote get-url origin`). Injectable so tests set a repo without a
 	// checkout. An error means "no origin", which callers treat as "no repo".
 	originRemote remoteResolver
+	// getenv reads a process environment variable (real: os.Getenv). Injectable so
+	// doctor can decide whether the GitHub token is user-supplied (GITHUB_TOKEN/
+	// GH_TOKEN set) or gh-CLI-managed without depending on the real environment.
+	getenv func(string) string
 }
 
 // tokenResolver returns the GitHub token to authenticate CLI gh operations. The
@@ -112,6 +116,7 @@ func newEnv(stdin io.Reader, stdout, stderr io.Writer) *env {
 		goos:         runtimeGOOS(),
 		ghToken:      gh.TokenFromGH,
 		originRemote: gitOriginRemote,
+		getenv:       os.Getenv,
 	}
 }
 
