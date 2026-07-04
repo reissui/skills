@@ -13,10 +13,22 @@ import (
 // path segment per the Bot API convention.
 const telegramAPIBase = "https://api.telegram.org"
 
+// getMeTimeout bounds a single getMe request. It is short because getMe is a
+// trivial round-trip (healthy responses land in tens of milliseconds); a longer
+// wait just means the endpoint is wedged. Verify retries once, so the worst-case
+// verification wait is ~2×this (issue #40: give getMe its own short per-request
+// deadline plus one retry so a transient blip doesn't kill setup).
+const getMeTimeout = 10 * time.Second
+
 // Verify calls getMe to confirm the token authenticates and returns the bot's
 // @username. It never sends a message. A network or auth failure yields
 // telegramResult{Valid:false} with a human Detail — the wizard renders that and
 // lets the user re-enter the token.
+//
+// getMe runs under its own short per-request deadline (getMeTimeout) and is
+// retried once on a transport error, so a single transient blip doesn't fail
+// first-time setup. The retry is skipped on auth failures (body.OK == false),
+// which are deterministic.
 func (realTelegram) Verify(ctx context.Context, token string) telegramResult {
 	var body struct {
 		OK     bool `json:"ok"`
@@ -25,8 +37,24 @@ func (realTelegram) Verify(ctx context.Context, token string) telegramResult {
 		} `json:"result"`
 		Description string `json:"description"`
 	}
-	if err := telegramGet(ctx, token, "getMe", nil, &body); err != nil {
-		return telegramResult{Detail: err.Error()}
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		reqCtx, cancel := context.WithTimeout(ctx, getMeTimeout)
+		err := telegramGet(reqCtx, token, "getMe", nil, &body)
+		cancel()
+		if err == nil {
+			lastErr = nil
+			break
+		}
+		lastErr = err
+		// Don't burn the retry if the parent context is already done (cancelled or
+		// its own deadline hit) — retrying can't succeed.
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	if lastErr != nil {
+		return telegramResult{Detail: lastErr.Error()}
 	}
 	if !body.OK {
 		return telegramResult{Detail: telegramErr(body.Description)}

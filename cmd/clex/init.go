@@ -231,7 +231,13 @@ func (w *wizard) ensureLabels(ctx context.Context, repo gh.Repo, res *initResult
 // mode the token comes from the flag and the chat id from --chat-id (no
 // tap-to-bind). Interactively it prompts (with a @BotFather pointer) and runs the
 // tap-to-bind handshake.
-func (w *wizard) setupTelegram(ctx context.Context, opts initOpts, res *initResult) int {
+//
+// Each network step (Verify, Bind) runs under its own fresh deadline minted
+// *after* the token is read, so time spent in @BotFather never consumes the
+// outside-world budget (issue #40). The incoming ctx (the command context) may
+// therefore already be near-expired from prompt time; it is deliberately not
+// threaded into the network calls.
+func (w *wizard) setupTelegram(_ context.Context, opts initOpts, res *initResult) int {
 	w.line("")
 	w.line("Telegram setup:")
 	token := opts.token
@@ -248,12 +254,24 @@ func (w *wizard) setupTelegram(ctx context.Context, opts initOpts, res *initResu
 		w.line("  Telegram: skipped (no --telegram-token)")
 		return exitOK
 	}
-	vr := w.e.telegram.Verify(ctx, token)
+
+	// Fresh deadline for getMe, minted now that the token is in hand.
+	vctx, vcancel := context.WithTimeout(context.Background(), telegramStepTimeout)
+	vr := w.e.telegram.Verify(vctx, token)
+	vcancel()
 	if !vr.Valid {
-		w.line("  ✗ token rejected: %s", vr.Detail)
+		// Never echo the token: the raw getMe error embeds the bot<token> URL.
+		w.line("  ✗ token rejected: %s", redactToken(vr.Detail, token))
 		if w.yes {
 			res.Message = "Telegram token rejected"
 			return exitError
+		}
+		// Interactive: a network-restricted user shouldn't be dead-ended. Offer to
+		// save the token unverified so doctor can re-verify later.
+		if w.confirm(opts.promptsIn, "  Couldn't verify with Telegram — save the token anyway and verify later?") {
+			w.token = token
+			w.line("  Telegram: token saved unverified; run `clex doctor` to verify later")
+			return exitOK
 		}
 		w.line("  Telegram: skipping (fix the token and re-run to enable it)")
 		return exitOK
@@ -271,15 +289,38 @@ func (w *wizard) setupTelegram(ctx context.Context, opts initOpts, res *initResu
 		return exitOK
 	}
 	w.line("  Now message your bot once so we can bind your chat id…")
-	br := w.e.telegram.Bind(ctx, token)
+	// Fresh deadline again: the bind poll gets its own full budget, independent of
+	// how long verification and the prompts took.
+	bctx, bcancel := context.WithTimeout(context.Background(), telegramStepTimeout)
+	br := w.e.telegram.Bind(bctx, token)
+	bcancel()
 	if !br.Valid {
-		w.line("  ✗ bind failed: %s", br.Detail)
+		w.line("  ✗ bind failed: %s", redactToken(br.Detail, token))
 		w.line("  Telegram: token saved; bind later by re-running init")
 		return exitOK
 	}
 	res.ChatID = br.ChatID
 	w.line("  ✓ bound chat id %d", br.ChatID)
 	return exitOK
+}
+
+// redactToken replaces every occurrence of the bot token in s with a placeholder
+// so a failure that echoes the getMe URL (…/bot<token>/getMe) never leaks the
+// secret into the terminal or logs (issue #40). It is defensive against both the
+// bare token and the URL-embedded form.
+func redactToken(s, token string) string {
+	if token == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, token, "REDACTED")
+}
+
+// confirm prompts a yes/no question (default No) and reports whether the user
+// answered affirmatively. A nil reader or EOF is treated as No.
+func (w *wizard) confirm(r *bufio.Reader, question string) bool {
+	w.line("%s [y/N]", question)
+	ans := strings.ToLower(strings.TrimSpace(w.prompt(r)))
+	return ans == "y" || ans == "yes"
 }
 
 // prompt reads one line of input from the wizard's reader.
