@@ -14,6 +14,13 @@ import (
 // wedged dependency from hanging the process forever.
 const commandTimeout = 30 * time.Second
 
+// telegramStepTimeout bounds one Telegram network step (token verify, tap-to-bind
+// poll). It is minted fresh *after* any interactive prompt so that time spent in
+// @BotFather never eats the network budget (issue #40: a slow paste used to leave
+// getMe with an already-expired deadline). Bind loops internally and only uses
+// this as its outer bound; a single getMe is far quicker (see telegram_real.go).
+const telegramStepTimeout = 90 * time.Second
+
 // newFlagSet builds a flag.FlagSet wired to write errors/usage to stderr and to
 // carry the standard --json flag. Every command uses this so --json is uniform
 // and help goes to the right stream. The returned *bool is the parsed --json.
