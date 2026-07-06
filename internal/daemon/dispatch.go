@@ -309,7 +309,11 @@ func (d *Daemon) maybeAssemble(ctx context.Context, epicNum, mergedChild int) {
 		d.notify(ctx, fmt.Sprintf("epic #%d assemble error: %s", epicNum, err.Error()))
 		return
 	}
-	d.notify(ctx, fmt.Sprintf("🏁 epic #%d final PR #%d opened", epicNum, res.PRNumber))
+	if res.Merged {
+		d.notify(ctx, fmt.Sprintf("🏁 epic #%d final PR #%d opened and auto-merged", epicNum, res.PRNumber))
+	} else {
+		d.notify(ctx, fmt.Sprintf("🏁 epic #%d final PR #%d opened — /merge %d to merge, or review it on GitHub", epicNum, res.PRNumber, res.PRNumber))
+	}
 	d.logEvent(ctx, epicNum, "assemble", fmt.Sprintf("final PR #%d (merged=%v)", res.PRNumber, res.Merged))
 }
 

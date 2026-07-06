@@ -195,13 +195,33 @@ func guessTier(provider, _ string, cfg *config.Config) string {
 			return "local"
 		}
 	}
-	// Sibling tier: find a configured model on this provider and use its tier.
+	// Sibling tier: gather the tiers of already-configured models on this
+	// provider and pick deterministically — "mid" first, then "local", then
+	// the first other tier by name, and "top" only when it is the sole sibling
+	// tier (a merely-discovered model is never silently promoted into the
+	// curated top tier). Deliberately NOT a map range: with siblings in
+	// different tiers, map iteration order made this guess nondeterministic.
+	siblingTiers := map[string]bool{}
 	for id, m := range cfg.Models {
 		if m.Provider == provider {
 			if t := tierOfModel(cfg, id); t != "" {
+				siblingTiers[t] = true
+			}
+		}
+	}
+	if len(siblingTiers) > 0 {
+		if siblingTiers["mid"] {
+			return "mid"
+		}
+		if siblingTiers["local"] {
+			return "local"
+		}
+		for _, t := range sortedKeys(siblingTiers) {
+			if t != "top" {
 				return t
 			}
 		}
+		return "top"
 	}
 	if _, ok := cfg.Tiers["mid"]; ok {
 		return "mid"

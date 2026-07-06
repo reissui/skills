@@ -55,12 +55,13 @@ func TestEndToEndIdeaToFinalPR(t *testing.T) {
 	epic := planRes.EpicNumber
 	c1, c2, c3 := planRes.IssueNumbers[0], planRes.IssueNumbers[1], planRes.IssueNumbers[2]
 
-	// Children are created already labelled clex:approved by the plan stage;
-	// assert that (the "approve" gate is implicit here) and confirm the third
-	// child records its dependency on the second.
-	assertHasLabel(t, h, c1, string(core.StateApproved))
-	assertHasLabel(t, h, c2, string(core.StateApproved))
-	assertHasLabel(t, h, c3, string(core.StateApproved))
+	// Children are created labelled clex:planned — the plan gate: nothing
+	// builds until the owner approves. Every child links its epic in
+	// Depends-on (how the daemon resolves the integration branch), and the
+	// third child records its dependency on the second.
+	assertHasLabel(t, h, c1, string(core.StatePlanned))
+	assertHasLabel(t, h, c2, string(core.StatePlanned))
+	assertHasLabel(t, h, c3, string(core.StatePlanned))
 
 	c3Issue, err := h.ghc.GetIssue(ctx, testRepo, c3)
 	if err != nil {
@@ -69,11 +70,21 @@ func TestEndToEndIdeaToFinalPR(t *testing.T) {
 	if !containsInt(c3Issue.Meta.DependsOn, c2) {
 		t.Fatalf("child #%d should depend on #%d; deps=%v", c3, c2, c3Issue.Meta.DependsOn)
 	}
-
-	// Link every child to the epic so the daemon can resolve the epic and gate
-	// assembly on all children landing (production establishes this at plan time).
 	for _, c := range []int{c1, c2, c3} {
-		h.linkChildToEpic(ctx, c, epic)
+		iss, gerr := h.ghc.GetIssue(ctx, testRepo, c)
+		if gerr != nil {
+			t.Fatalf("get child #%d: %v", c, gerr)
+		}
+		if !containsInt(iss.Meta.DependsOn, epic) {
+			t.Fatalf("child #%d should depend on its epic #%d; deps=%v", c, epic, iss.Meta.DependsOn)
+		}
+	}
+
+	// Pass the plan gate: approve every child (what /build <epic#> does).
+	for _, c := range []int{c1, c2, c3} {
+		if err := h.ghc.SetState(ctx, testRepo, c, core.StateApproved); err != nil {
+			t.Fatalf("approve child #%d: %v", c, err)
+		}
 	}
 
 	// --- 2. Run the daemon: it dispatches approved children (respecting the

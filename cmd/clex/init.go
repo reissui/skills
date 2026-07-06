@@ -10,6 +10,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/reissui/clex/internal/config"
+	"github.com/reissui/clex/internal/core"
 	"github.com/reissui/clex/internal/gh"
 )
 
@@ -364,6 +365,16 @@ func writeConfigScaffold(path, token string, chatID int64, missing []string) err
 	// Prefer a provider that is actually installed for the single default model.
 	provider, kind, model := defaultProviderChoice(missing)
 	cfg := config.Default(token, chatID, provider, kind, model)
+	// With BOTH claude and codex installed, split the roles the way the process
+	// is designed to run: Claude plans, reviews, and chats (top tier); codex
+	// (GPT) is the builder. A single-provider setup keeps the Default shape.
+	missingSet := make(map[string]bool, len(missing))
+	for _, m := range missing {
+		missingSet[m] = true
+	}
+	if !missingSet["claude"] && !missingSet["codex"] {
+		applyDualProviderRouting(cfg)
+	}
 
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -374,6 +385,33 @@ func writeConfigScaffold(path, token string, chatID int64, missing []string) err
 		return fmt.Errorf("encode config: %w", err)
 	}
 	return nil
+}
+
+// applyDualProviderRouting rewrites a Default (single-provider) scaffold into
+// the two-provider split: claude's opus on the "top" tier planning, reviewing,
+// linting, and chatting; codex's gpt-5-codex on the "build" tier building.
+// This encodes the intended division of labor — Claude as the planner, GPT as
+// the developer — while every knob stays owner-editable TOML.
+func applyDualProviderRouting(cfg *config.Config) {
+	cfg.Providers = map[string]config.Provider{
+		"claude": {Kind: "claude-cli"},
+		"codex":  {Kind: "codex-cli"},
+	}
+	cfg.Models = map[string]config.Model{
+		"opus":        {Provider: "claude", Billing: core.BillingSubscription},
+		"gpt-5-codex": {Provider: "codex", Billing: core.BillingSubscription},
+	}
+	cfg.Tiers = core.TierMap{
+		"top":   {"opus"},
+		"build": {"gpt-5-codex"},
+	}
+	cfg.Routing = map[string]config.Routing{
+		string(core.RolePlan):   {Tier: "top"},
+		string(core.RoleReview): {Tier: "top"},
+		string(core.RoleLint):   {Tier: "top"},
+		string(core.RoleBot):    {Tier: "top"},
+		string(core.RoleBuild):  {Tier: "build"},
+	}
 }
 
 // defaultProviderChoice picks the provider/kind/model for the scaffold's single

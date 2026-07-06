@@ -86,6 +86,40 @@ func issueFromGitHub(iss *github.Issue) *Issue {
 	return out
 }
 
+// ListOpenIssues returns every open clex-managed issue (one carrying a
+// pipeline-state label or the epic marker), paginating fully. It is the same
+// source-of-truth read the daemon uses to build scheduler state; the CLI uses
+// it to enumerate an epic's children for `clex build <epic#>`.
+func (c *Client) ListOpenIssues(ctx context.Context, repo Repo) ([]*Issue, error) {
+	opts := &github.IssueListByRepoOptions{
+		State:       "open",
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	var out []*Issue
+	for {
+		issues, resp, err := c.gh.Issues.ListByRepo(ctx, repo.Owner, repo.Name, opts)
+		if err != nil {
+			return nil, fmt.Errorf("list issues in %s: %w", repo, err)
+		}
+		for _, iss := range issues {
+			// The issues endpoint returns pull requests too; skip them.
+			if iss.PullRequestLinks != nil {
+				continue
+			}
+			conv := issueFromGitHub(iss)
+			if conv.State == "" && !conv.IsEpic {
+				continue // not clex-managed
+			}
+			out = append(out, conv)
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	return out, nil
+}
+
 // CreateIssue opens a new issue with the given title, body, and labels.
 func (c *Client) CreateIssue(ctx context.Context, repo Repo, title, body string, labels []string) (*Issue, error) {
 	req := &github.IssueRequest{

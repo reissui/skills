@@ -92,18 +92,87 @@ func cmdPlan(e *env, args []string) int {
 		"queued #%d for planning in %s; the daemon will research and open the plan gate.")
 }
 
-// cmdBuild approves an issue for the build stage by labelling it clex:approved,
-// making it dispatchable by the scheduler. Direct gh label op (no daemon
-// required); the running daemon picks the approved issue up. Epics are targeted
-// by number too.
+// cmdBuild passes the plan gate. For a child issue it swaps the label to
+// clex:approved, making it dispatchable by the scheduler. For an epic it
+// approves every clex:planned child (same behavior as Telegram's /build).
+// Direct gh ops (no daemon required); the running daemon picks approved issues
+// up on its next reconcile.
 func cmdBuild(e *env, args []string) int {
 	fs, jsonOut := newFlagSet(e, "build", "approve an issue or epic for building")
 	repoFlag := fs.String("repo", "", "target repository as owner/name")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
-	return e.setIssueState(fs.Args(), *repoFlag, *jsonOut, core.StateApproved,
-		"approved #%d for building in %s; the daemon will dispatch it.")
+	rest := fs.Args()
+	if len(rest) < 1 {
+		return fail(e, *jsonOut, "usage: clex build <issue|epic> [--repo owner/name]")
+	}
+	number, perr := parseIssueTarget(rest[0])
+	if perr != nil || number <= 0 {
+		return fail(e, *jsonOut, "an issue number is required")
+	}
+	repo, err := e.resolveRepo(*repoFlag)
+	if err != nil {
+		return fail(e, *jsonOut, "%v", err)
+	}
+	ctx, cancel := e.cmdContext()
+	defer cancel()
+	client, err := e.ghClientFor(ctx)
+	if err != nil {
+		return fail(e, *jsonOut, "%v", err)
+	}
+	iss, err := client.GetIssue(ctx, repo, number)
+	if err != nil {
+		return fail(e, *jsonOut, "get #%d: %v", number, err)
+	}
+	if !iss.IsEpic {
+		if err := client.SetState(ctx, repo, number, core.StateApproved); err != nil {
+			return fail(e, *jsonOut, "set #%d to %s: %v", number, core.StateApproved, err)
+		}
+		if *jsonOut {
+			return writeJSON(e.stdout, map[string]any{
+				"ok": true, "repo": repo.String(), "issue": number, "state": string(core.StateApproved),
+			})
+		}
+		fmt.Fprintf(e.stdout, "approved #%d for building in %s; the daemon will dispatch it.\n", number, repo)
+		return exitOK
+	}
+
+	open, err := client.ListOpenIssues(ctx, repo)
+	if err != nil {
+		return fail(e, *jsonOut, "list issues: %v", err)
+	}
+	var approved []int
+	for _, child := range open {
+		if child.IsEpic || child.State != core.StatePlanned || !dependsOnNumber(child, number) {
+			continue
+		}
+		if err := client.SetState(ctx, repo, child.Number, core.StateApproved); err != nil {
+			return fail(e, *jsonOut, "approve child #%d: %v", child.Number, err)
+		}
+		approved = append(approved, child.Number)
+	}
+	if len(approved) == 0 {
+		return fail(e, *jsonOut, "epic #%d has no planned children to approve", number)
+	}
+	if *jsonOut {
+		return writeJSON(e.stdout, map[string]any{
+			"ok": true, "repo": repo.String(), "epic": number, "approved": approved,
+		})
+	}
+	fmt.Fprintf(e.stdout, "approved %d issues of epic #%d in %s; the daemon will build them in dependency order.\n", len(approved), number, repo)
+	return exitOK
+}
+
+// dependsOnNumber reports whether iss lists n among its DependsOn numbers (the
+// child→epic link the planner writes).
+func dependsOnNumber(iss *gh.Issue, n int) bool {
+	for _, dep := range iss.Meta.DependsOn {
+		if dep == n {
+			return true
+		}
+	}
+	return false
 }
 
 // setIssueState is the shared body of plan/build: parse the issue target, resolve

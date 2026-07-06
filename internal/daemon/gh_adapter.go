@@ -30,6 +30,14 @@ func (a *ghAdapter) GetIssue(ctx context.Context, repo gh.Repo, number int) (*gh
 	return a.c.GetIssue(ctx, repo, number)
 }
 
+func (a *ghAdapter) CreateIssue(ctx context.Context, repo gh.Repo, title, body string, labels []string) (*gh.Issue, error) {
+	return a.c.CreateIssue(ctx, repo, title, body, labels)
+}
+
+func (a *ghAdapter) MergePR(ctx context.Context, repo gh.Repo, number int, method, commitMessage string) (string, error) {
+	return a.c.MergePR(ctx, repo, number, method, commitMessage)
+}
+
 func (a *ghAdapter) SetState(ctx context.Context, repo gh.Repo, number int, to core.State) error {
 	return a.c.SetState(ctx, repo, number, to)
 }

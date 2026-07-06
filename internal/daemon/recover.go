@@ -34,6 +34,18 @@ func (d *Daemon) recover(ctx context.Context) error {
 	}
 	var reverted int
 	for _, iss := range issues {
+		// A clex:researching issue was mid-plan; no planner survives a restart
+		// either. Revert to clex:idea so reconcile re-plans it (Plan resumes an
+		// already-created epic via the PlannedFromMarker scan, so no duplicates).
+		if iss.State == core.StateResearching {
+			if err := d.deps.GH.SetState(ctx, d.cfg.Repo, iss.Number, core.StateIdea); err != nil {
+				d.log.Warn("recover: revert plan label", "issue", iss.Number, "err", d.red.Redact(err.Error()))
+				continue
+			}
+			d.logEvent(ctx, iss.Number, "recover", "orphaned clex:researching reverted to clex:idea")
+			reverted++
+			continue
+		}
 		if iss.State != core.StateBuilding {
 			continue
 		}

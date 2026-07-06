@@ -133,6 +133,13 @@ type Daemon struct {
 	mu      sync.Mutex
 	paused  bool
 	running map[int]*runState // issue number → in-flight build
+	// chat is the Telegram free-text conversation state (model override, CLI
+	// session id, busy flag), guarded by mu like the other handler-read fields.
+	chat chatState
+	// planFailed marks ideas whose planning failed this daemon lifetime, so
+	// reconcile does not hot-loop a permanent failure. Cleared by /steer on the
+	// idea (a deliberate retry) and by restart.
+	planFailed map[int]bool
 	// pendingGate is a human-readable description of a cost-gate confirm the
 	// daemon is currently awaiting (empty when none). Consulted by the update
 	// quiesce hook and status.
