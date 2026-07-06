@@ -33,6 +33,12 @@ type fakeStages struct {
 	escalateTo core.Model
 	escalateOK bool
 
+	// plan scripting + records
+	planResult   pipeline.PlanResult
+	planErr      error
+	planCalls    []int
+	planExisting []int
+
 	// records
 	buildCalls    []int
 	reviewCalls   []int
@@ -58,8 +64,22 @@ func newFakeStages() *fakeStages {
 	}
 }
 
-func (s *fakeStages) Plan(_ context.Context, _ *gh.Issue, _ pipeline.PlanInputs, _ int) (pipeline.PlanResult, error) {
-	return pipeline.PlanResult{}, nil
+func (s *fakeStages) Plan(_ context.Context, iss *gh.Issue, _ pipeline.PlanInputs, existingEpic int) (pipeline.PlanResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.planCalls = append(s.planCalls, iss.Number)
+	s.planExisting = append(s.planExisting, existingEpic)
+	if s.planErr != nil {
+		return pipeline.PlanResult{}, s.planErr
+	}
+	return s.planResult, nil
+}
+
+// planCallCount returns how many times Plan ran (test helper).
+func (s *fakeStages) planCallCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.planCalls)
 }
 
 func (s *fakeStages) Build(ctx context.Context, _ int, iss *gh.Issue, _ pipeline.KnowledgeExcerpts, _ int) (pipeline.BuildResult, error) {

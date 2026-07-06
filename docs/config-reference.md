@@ -103,6 +103,11 @@ Each role chooses exactly one selector:
 
 Role-level `effort` and `fast` override model defaults.
 
+`bot` is the Telegram chat role: free text sent to the bot runs on this model
+(with the conversation resumed across messages). The init wizard defaults it to
+Claude when both CLIs are installed. `/model <id>` in Telegram overrides it for
+the current daemon run without touching this file.
+
 ## Budget And Caps
 
 ```toml

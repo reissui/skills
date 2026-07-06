@@ -29,6 +29,9 @@ type fakeGH struct {
 	changes  chan gh.Change
 	// setStateCalls records every SetState transition for assertions.
 	setStateCalls []stateChange
+	// mergedPRs records MergePR calls; mergeErr, if set, fails them.
+	mergedPRs []int
+	mergeErr  error
 }
 
 type stateChange struct {
@@ -87,6 +90,47 @@ func (f *fakeGH) ListIssues(_ context.Context, _ gh.Repo) ([]*gh.Issue, error) {
 		out = append(out, &cp)
 	}
 	return out, nil
+}
+
+func (f *fakeGH) CreateIssue(_ context.Context, _ gh.Repo, title, body string, labels []string) (*gh.Issue, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	next := 1
+	for n := range f.issues {
+		if n >= next {
+			next = n + 1
+		}
+	}
+	iss := &gh.Issue{Number: next, Title: title, Body: body, Labels: labels, Meta: gh.ParseMetadata(body)}
+	for _, l := range labels {
+		s := core.State(l)
+		if core.IsPipelineState(s) {
+			iss.State = s
+		}
+		if s == core.StateEpic {
+			iss.IsEpic = true
+		}
+	}
+	f.issues[next] = iss
+	cp := *iss
+	return &cp, nil
+}
+
+func (f *fakeGH) MergePR(_ context.Context, _ gh.Repo, number int, _, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.mergeErr != nil {
+		return "", f.mergeErr
+	}
+	f.mergedPRs = append(f.mergedPRs, number)
+	return fmt.Sprintf("sha-%d", number), nil
+}
+
+// merged returns the PR numbers merged so far (test helper).
+func (f *fakeGH) merged() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int(nil), f.mergedPRs...)
 }
 
 func (f *fakeGH) GetIssue(_ context.Context, _ gh.Repo, number int) (*gh.Issue, error) {
@@ -176,6 +220,7 @@ type fakeTG struct {
 	handlers map[string]telegram.CommandHandler
 	answers  []telegram.Answer
 	askCalls int
+	onText   func(ctx context.Context, text string, replyToMsgID int)
 }
 
 func newFakeTG() *fakeTG {
@@ -206,6 +251,51 @@ func (f *fakeTG) Handle(name string, h telegram.CommandHandler) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.handlers[name] = h
+}
+
+func (f *fakeTG) OnText(fn func(ctx context.Context, text string, replyToMsgID int)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.onText = fn
+}
+
+// text simulates the owner typing free text (test helper).
+func (f *fakeTG) text(ctx context.Context, s string) {
+	f.mu.Lock()
+	fn := f.onText
+	f.mu.Unlock()
+	if fn != nil {
+		fn(ctx, s, 0)
+	}
+}
+
+// command invokes a registered slash-command handler (test helper). It waits
+// briefly for registration, since the daemon registers handlers inside Run.
+func (f *fakeTG) command(ctx context.Context, name, args string) {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		f.mu.Lock()
+		h := f.handlers[name]
+		f.mu.Unlock()
+		if h != nil {
+			h(ctx, args)
+			return
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// lastLine returns the most recently sent line (test helper).
+func (f *fakeTG) lastLine() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.lines) == 0 {
+		return ""
+	}
+	return f.lines[len(f.lines)-1]
 }
 
 // sentContains reports whether any sent line contains sub (test helper).

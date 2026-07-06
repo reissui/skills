@@ -143,8 +143,8 @@ clex init       Guided setup wizard
 clex doctor     Check binaries, auth, tokens, and role resolution
 clex service    Install/uninstall/status the launchd or systemd unit
 clex idea       File a feature idea as a labelled GitHub issue
-clex plan       Queue an issue for planning
-clex build      Approve an issue or epic for building
+clex plan       Queue an issue for planning (the daemon researches + plans it)
+clex build      Approve an issue — or a whole epic's planned issues — for building
 clex status     Show pipeline and daemon state
 clex steer      Send steering guidance to an issue or epic
 clex models     Show model registry health
@@ -157,20 +157,46 @@ clex update     Update the clex binary
 
 Every command accepts `--json` where machine-readable output is implemented.
 
-## Telegram Commands
+## Telegram
+
+Telegram is a conversation, not just a command console. Any plain message is
+chat: it runs on the configured chat model (`[routing.bot]`, Claude by
+default) inside the repo checkout, with the conversation carried across
+messages — ask questions, think out loud, explore the codebase. When the
+conversation turns into something worth building, `/plan` hands it to the
+pipeline.
+
+The core loop:
+
+1. **Chat** about what you want (optional but useful context).
+2. **`/plan add per-user rate limits`** — files the idea; the planner (Claude,
+   top tier) researches the repo and turns it into a PRD epic plus
+   agent-ready sub-issues on GitHub, then reports back. A bare `/plan`
+   distills the current chat conversation into the idea.
+3. **Review the plan** on GitHub (or `/steer <epic> <text>` to adjust it).
+4. **`/build <epic#>`** — approves every planned sub-issue; builders (GPT via
+   the codex CLI by default) implement them in parallel worktrees on one
+   integration branch, each PR reviewed by a top-tier model.
+5. **One final PR to `main`** opens when everything lands — merge it yourself
+   on GitHub, or reply **`/merge <pr#>`** to confirm from Telegram.
 
 | Command | Purpose |
 | --- | --- |
+| *(any text)* | Chat with the bot model — repo-aware, conversation persists. |
+| `/plan [idea]` | Turn an idea (or the chat so far) into a PRD epic + sub-issues. |
+| `/build <epic\|issue>` | Approve an epic's planned issues (or one issue) for building. |
+| `/merge <pr>` | Merge the final epic PR. |
+| `/model [id]` | Show or switch the chat model. |
 | `/status` | Show active issues, gates, and daemon state. |
 | `/pause` | Hold new dispatches; running work continues. |
 | `/resume` | Resume dispatching. |
-| `/stop <issue>` | Cancel one running issue and preserve its worktree. |
-| `/steer <issue> <text>` | Send guidance to a running or idle issue. |
+| `/stop <issue>` | Cancel one running issue (build keeps its worktree). |
+| `/steer <issue> <text>` | Send guidance to a running or idle issue, or re-arm a failed plan. |
 | `/models` | Show available models and provider health. |
 | `/costs` | Show current epic and daily spend estimates. |
 
-Progress messages stay one line. Plan and cost questions use confirm-or-alter
-buttons so the default path is a single tap.
+Progress messages stay one line. Cost questions use confirm-or-alter buttons
+so the default path is a single tap.
 
 ## Config
 

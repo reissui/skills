@@ -90,8 +90,14 @@ func (d *Daemon) stopIssue(ctx context.Context, issue int) string {
 		return fmt.Sprintf("#%d is not running", issue)
 	}
 	// Revert the label first so the source of truth reflects the stop even if
-	// the process dies immediately after. SetState is idempotent.
-	if err := d.deps.GH.SetState(ctx, d.cfg.Repo, issue, core.StateApproved); err != nil {
+	// the process dies immediately after. SetState is idempotent. A stopped
+	// build reverts to approved (re-dispatchable); a stopped plan reverts to
+	// idea (re-plannable).
+	revert := core.StateApproved
+	if rs.stage == "plan" {
+		revert = core.StateIdea
+	}
+	if err := d.deps.GH.SetState(ctx, d.cfg.Repo, issue, revert); err != nil {
 		d.log.Warn("stop: revert label", "issue", issue, "err", d.red.Redact(err.Error()))
 	}
 	// Cancel the runner's context. The worktree is intentionally left in place.
@@ -144,6 +150,11 @@ func (d *Daemon) steer(ctx context.Context, issue int, text string) string {
 	}
 
 	// Idle issue: append a Steering note to the body and re-lint (best-effort).
+	// Steering an idea whose planning failed is the deliberate retry signal:
+	// clear the failure guard so reconcile plans it again.
+	d.mu.Lock()
+	delete(d.planFailed, issue)
+	d.mu.Unlock()
 	return d.steerIdleIssue(ctx, iss, text)
 }
 

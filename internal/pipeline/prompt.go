@@ -78,12 +78,25 @@ type BuildContext struct {
 	ImageRefs []string
 }
 
+// BuilderGoalDirective is the goal-driven block every builder prompt carries:
+// finish the issue end-to-end with no human in the loop. It is exported and
+// asserted verbatim in prompt-assembly tests so it can never be silently
+// dropped.
+const BuilderGoalDirective = "GOAL: Complete this issue end-to-end in this session — there is no human in the loop. " +
+	"Never stop to ask a question: when something is ambiguous, make the most reasonable assumption consistent with " +
+	"the issue and the MAP.md excerpt, record it in your final summary, and keep going. " +
+	"Do not widen scope beyond the Touches globs or the acceptance criteria. " +
+	"You are done only when every acceptance criterion holds and the verification command passes clean in this worktree."
+
 // buildBuildPrompt assembles the builder prompt. It leads with the untrusted-
-// input preamble, then states the task, acceptance criteria (the issue body),
-// the scoped context, and the exact verification command the build will run.
+// input preamble and the goal-driven directive, then states the task,
+// acceptance criteria (the issue body), the scoped context, and the exact
+// verification command the build will run.
 func buildBuildPrompt(bc BuildContext) string {
 	var b strings.Builder
 	b.WriteString(BuilderPreamble)
+	b.WriteString("\n\n")
+	b.WriteString(BuilderGoalDirective)
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, "TASK: Implement issue #%d in this worktree. Stay strictly within the Touches globs.\n\n", bc.Issue.Number)
 

@@ -90,6 +90,10 @@ type ghClient interface {
 	EnsureLabels(ctx context.Context, repo gh.Repo, agents []string) error
 	CreateIssue(ctx context.Context, repo gh.Repo, title, body string, labels []string) (*gh.Issue, error)
 	SetState(ctx context.Context, repo gh.Repo, number int, to core.State) error
+	// GetIssue and ListOpenIssues let `clex build <epic#>` recognize an epic and
+	// approve its planned children (the plan gate).
+	GetIssue(ctx context.Context, repo gh.Repo, number int) (*gh.Issue, error)
+	ListOpenIssues(ctx context.Context, repo gh.Repo) ([]*gh.Issue, error)
 	// TokenScopes returns the OAuth scopes GitHub reports for the token (the
 	// X-OAuth-Scopes header). A fine-grained PAT reports none; a classic token
 	// with full-repo access reports "repo". Empty slice is fine.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/reissui/clex/internal/core"
 	"github.com/reissui/clex/internal/gh"
 	"github.com/reissui/clex/internal/pipeline"
 	"github.com/reissui/clex/internal/scheduler"
@@ -24,6 +25,8 @@ const (
 	evBuildDone
 	// evControl is an IPC/Telegram control action (pause/resume/stop/steer).
 	evControl
+	// evPlanDone is a planner-completion event from a plan goroutine.
+	evPlanDone
 )
 
 // loopEvent is the single serialized input to the loop. Only the fields
@@ -33,6 +36,7 @@ type loopEvent struct {
 	change  gh.Change
 	done    buildDone
 	control controlAction
+	plan    planDone
 }
 
 // buildDone reports the outcome of a build goroutine back to the loop.
@@ -57,8 +61,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.startedAt = time.Now()
 	d.log.Info("clexd starting", "repo", d.cfg.Repo.String(), "home", d.cfg.Home)
 
-	// Register Telegram command handlers (also reachable via IPC).
+	// Register Telegram command handlers (also reachable via IPC) and the
+	// free-text chat callback.
 	d.registerCommands(ctx)
+	d.registerChat(ctx)
 
 	// Crash recovery: reconstruct in-flight state purely from GitHub labels
 	// BEFORE accepting any new work. Orphaned clex:building issues with no live
@@ -152,6 +158,9 @@ func (d *Daemon) handleEvent(ctx context.Context, ev loopEvent) {
 		d.reconcile(ctx)
 	case evControl:
 		d.onControl(ctx, ev.control)
+	case evPlanDone:
+		d.onPlanDone(ctx, ev.plan)
+		d.reconcile(ctx)
 	}
 }
 
@@ -174,6 +183,15 @@ func (d *Daemon) reconcile(ctx context.Context) {
 		d.log.Warn("list issues for reconcile", "err", d.red.Redact(err.Error()))
 		return
 	}
+	// Plan dispatch: a clex:idea issue is an owner request to plan. It runs off
+	// the scheduler (planning is not a build slot) but shares the running set so
+	// /status shows it and /stop cancels it.
+	for _, iss := range issues {
+		if !iss.IsEpic && iss.State == core.StateIdea {
+			d.dispatchPlan(ctx, iss, issues)
+		}
+	}
+
 	state := d.schedulerState(issues)
 	if err := scheduler.Validate(state.Issues); err != nil {
 		// A dependency cycle: surface once, do not dispatch (Next returns nil).

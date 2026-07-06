@@ -136,6 +136,181 @@ func (d *Daemon) registerCommands(ctx context.Context) {
 		c := d.costsSnapshot()
 		d.notify(hctx, fmt.Sprintf("costs: epic $%.2f, today $%.2f", c.SpentThisEpicUSD, c.SpentTodayUSD))
 	})
+	d.deps.TG.Handle("plan", func(hctx context.Context, args string) {
+		d.notify(hctx, d.planCommand(hctx, args))
+		d.enqueue(loopEvent{kind: evTick})
+	})
+	d.deps.TG.Handle("build", func(hctx context.Context, args string) {
+		n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(args), "#")))
+		if err != nil {
+			d.notify(hctx, "usage: /build <epic or issue number>")
+			return
+		}
+		d.notify(hctx, d.buildCommand(hctx, n))
+		d.enqueue(loopEvent{kind: evTick})
+	})
+	d.deps.TG.Handle("merge", func(hctx context.Context, args string) {
+		n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(args), "#")))
+		if err != nil {
+			d.notify(hctx, "usage: /merge <pr number>")
+			return
+		}
+		sha, merr := d.deps.GH.MergePR(hctx, d.cfg.Repo, n, "merge", "")
+		if merr != nil {
+			d.notify(hctx, fmt.Sprintf("✗ merge PR #%d: %s", n, oneLineOf(d.red.Redact(merr.Error()))))
+			return
+		}
+		d.logEvent(hctx, 0, "merge", fmt.Sprintf("PR #%d merged (%s) via /merge", n, shortSHA(sha)))
+		d.notify(hctx, fmt.Sprintf("✅ PR #%d merged (%s)", n, shortSHA(sha)))
+	})
+	d.deps.TG.Handle("model", func(hctx context.Context, args string) {
+		if strings.TrimSpace(args) == "" {
+			d.notify(hctx, d.chatModelLine())
+			return
+		}
+		d.notify(hctx, d.setChatModel(args))
+	})
+}
+
+// planCommand implements /plan: file an idea issue for the daemon to plan.
+// With text, the text is the idea (first line becomes the title). Bare, it
+// distills the current chat conversation into an idea brief — chat first, then
+// /plan, is the natural handoff.
+func (d *Daemon) planCommand(ctx context.Context, args string) string {
+	text := strings.TrimSpace(args)
+	if text == "" {
+		distilled, err := d.distillIdea(ctx)
+		if err != nil {
+			return "usage: /plan <what you want built> — or chat about it first, then a bare /plan plans the conversation (" + err.Error() + ")"
+		}
+		text = distilled
+	}
+	title, body := splitIdeaText(text)
+	iss, err := d.deps.GH.CreateIssue(ctx, d.cfg.Repo, title, body, []string{string(core.StateIdea)})
+	if err != nil {
+		return "✗ file idea: " + oneLineOf(d.red.Redact(err.Error()))
+	}
+	d.logEvent(ctx, iss.Number, "idea", "filed via /plan")
+	return fmt.Sprintf("💡 idea #%d filed: %s — planning starts now", iss.Number, title)
+}
+
+// buildCommand implements /build: pass the plan gate. For an epic it approves
+// every planned child (the scheduler then dispatches them in dependency order,
+// parallel where Touches allow); for a single issue it approves just that one.
+func (d *Daemon) buildCommand(ctx context.Context, n int) string {
+	iss, err := d.deps.GH.GetIssue(ctx, d.cfg.Repo, n)
+	if err != nil {
+		return fmt.Sprintf("✗ #%d not found: %s", n, oneLineOf(err.Error()))
+	}
+	if !iss.IsEpic {
+		if iss.State != core.StatePlanned {
+			return fmt.Sprintf("#%d is %s — /build approves planned issues", n, stateOrNone(iss.State))
+		}
+		if err := d.deps.GH.SetState(ctx, d.cfg.Repo, n, core.StateApproved); err != nil {
+			return fmt.Sprintf("✗ approve #%d: %s", n, oneLineOf(err.Error()))
+		}
+		d.logEvent(ctx, n, "gate", "approved via /build")
+		return fmt.Sprintf("✅ #%d approved — building starts now", n)
+	}
+
+	issues, err := d.deps.GH.ListIssues(ctx, d.cfg.Repo)
+	if err != nil {
+		return "✗ list issues: " + oneLineOf(d.red.Redact(err.Error()))
+	}
+	var approved, already int
+	for _, child := range issues {
+		if child.IsEpic || !dependsOn(child, n) {
+			continue
+		}
+		switch child.State {
+		case core.StatePlanned:
+			if err := d.deps.GH.SetState(ctx, d.cfg.Repo, child.Number, core.StateApproved); err != nil {
+				d.log.Warn("approve child", "issue", child.Number, "err", d.red.Redact(err.Error()))
+				continue
+			}
+			approved++
+		case core.StateApproved, core.StateBuilding, core.StateReview:
+			already++
+		}
+	}
+	if approved == 0 && already == 0 {
+		return fmt.Sprintf("epic #%d has no planned children — /plan an idea first", n)
+	}
+	d.logEvent(ctx, n, "gate", fmt.Sprintf("epic approved via /build: %d children approved, %d already in flight", approved, already))
+	if already > 0 {
+		return fmt.Sprintf("✅ epic #%d: %d issues approved (%d already in flight) — building starts now", n, approved, already)
+	}
+	return fmt.Sprintf("✅ epic #%d: %d issues approved — building starts now", n, approved)
+}
+
+// distillIdea asks the current chat session to compress the conversation into
+// an idea brief. It requires an existing session — with nothing discussed there
+// is nothing to plan.
+func (d *Daemon) distillIdea(ctx context.Context) (string, error) {
+	d.mu.Lock()
+	resume := d.chat.sessionID
+	busy := d.chat.busy
+	d.mu.Unlock()
+	if resume == "" {
+		return "", fmt.Errorf("no chat to plan yet")
+	}
+	if busy {
+		return "", fmt.Errorf("chat is busy")
+	}
+	opt, err := d.chatOption()
+	if err != nil {
+		return "", err
+	}
+	runner, err := d.deps.RunnerFactory.RunnerFor(opt.Model)
+	if err != nil {
+		return "", fmt.Errorf("no runner for %s", opt.Model.ID)
+	}
+	task := core.Task{
+		Repo: d.cfg.Repo.String(),
+		Prompt: "Distill our conversation so far into one buildable idea brief. " +
+			"First line: a concise title. Then a blank line, then the brief itself: " +
+			"goal, relevant context and constraints from the conversation, and what done looks like. " +
+			"Output only the brief — no preamble.",
+		Effort:   opt.Effort,
+		Fast:     opt.Fast,
+		ResumeID: resume,
+	}
+	text, sessionID, err := drainRun(ctx, runner, task, repoDirFor(d.cfg))
+	if err != nil {
+		return "", fmt.Errorf("distill failed: %s", oneLineOf(d.red.Redact(err.Error())))
+	}
+	if sessionID != "" {
+		d.mu.Lock()
+		d.chat.sessionID = sessionID
+		d.mu.Unlock()
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("distill produced nothing")
+	}
+	return strings.TrimSpace(text), nil
+}
+
+// splitIdeaText splits idea text into a title (first line, trimmed) and the
+// full text as body.
+func splitIdeaText(text string) (title, body string) {
+	title = strings.TrimSpace(text)
+	if i := strings.IndexByte(title, '\n'); i >= 0 {
+		title = strings.TrimSpace(title[:i])
+	}
+	const maxTitle = 120
+	if len(title) > maxTitle {
+		title = title[:maxTitle-1] + "…"
+	}
+	return title, text
+}
+
+// stateOrNone renders a state label for humans, with a fallback for issues
+// carrying no pipeline label.
+func stateOrNone(s core.State) string {
+	if s == "" {
+		return "unlabelled"
+	}
+	return string(s)
 }
 
 // parseSteerArgs splits "/steer <#issue> <text>" into issue and text. A leading

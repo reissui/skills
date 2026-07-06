@@ -183,15 +183,31 @@ func TestPlanCreatesEpicAndChildren(t *testing.T) {
 	if len(res.Questions) != 1 {
 		t.Errorf("questions = %d, want 1", len(res.Questions))
 	}
-	// Epic carries the clex:epic marker.
+	// Epic carries the clex:epic marker and the idea provenance marker (crash
+	// recovery scans for it to resume instead of duplicating).
 	epic := ghc.issues[res.EpicNumber]
 	if !epic.IsEpic {
 		t.Error("epic missing clex:epic marker")
 	}
-	// Second child depends on the first (real numbers wired in).
+	if !strings.Contains(epic.Body, PlannedFromMarker(idea.Number)) {
+		t.Errorf("epic body missing %q", PlannedFromMarker(idea.Number))
+	}
+	// Children are gated at clex:planned — nothing builds before /build.
+	for _, n := range res.IssueNumbers {
+		if st := ghc.issues[n].State; st != core.StatePlanned {
+			t.Errorf("child #%d state = %s, want %s", n, st, core.StatePlanned)
+		}
+	}
+	// Every child links its epic; the second child also depends on the first
+	// (real numbers wired in).
+	child1 := ghc.issues[res.IssueNumbers[0]]
+	if len(child1.Meta.DependsOn) != 1 || child1.Meta.DependsOn[0] != res.EpicNumber {
+		t.Errorf("child1 DependsOn = %v, want [%d]", child1.Meta.DependsOn, res.EpicNumber)
+	}
 	child2 := ghc.issues[res.IssueNumbers[1]]
-	if len(child2.Meta.DependsOn) != 1 || child2.Meta.DependsOn[0] != res.IssueNumbers[0] {
-		t.Errorf("child2 DependsOn = %v, want [%d]", child2.Meta.DependsOn, res.IssueNumbers[0])
+	want := []int{res.EpicNumber, res.IssueNumbers[0]}
+	if len(child2.Meta.DependsOn) != 2 || child2.Meta.DependsOn[0] != want[0] || child2.Meta.DependsOn[1] != want[1] {
+		t.Errorf("child2 DependsOn = %v, want %v", child2.Meta.DependsOn, want)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/reissui/clex/internal/core"
+	"github.com/reissui/clex/internal/gh"
 )
 
 func TestIdeaFilesLabelledIssue(t *testing.T) {
@@ -95,6 +96,51 @@ func TestBuildApprovesIssue(t *testing.T) {
 	}
 	if len(fgh.setStateCalls) != 1 || fgh.setStateCalls[0].to != core.StateApproved || fgh.setStateCalls[0].number != 7 {
 		t.Fatalf("build should SetState #7 to approved; got %+v", fgh.setStateCalls)
+	}
+}
+
+// clex build <epic#> passes the plan gate for the whole epic: every planned
+// child (linked via Depends-on) is approved; unrelated and already-building
+// issues are untouched.
+func TestBuildEpicApprovesPlannedChildren(t *testing.T) {
+	e := newTestEnv(t)
+	fgh := e.newGH.mustFake(t)
+	fgh.seedIssue(&gh.Issue{Number: 90, Title: "Epic: widgets", IsEpic: true})
+	fgh.seedIssue(&gh.Issue{Number: 91, State: core.StatePlanned, Meta: gh.Metadata{DependsOn: []int{90}}})
+	fgh.seedIssue(&gh.Issue{Number: 92, State: core.StatePlanned, Meta: gh.Metadata{DependsOn: []int{90, 91}}})
+	fgh.seedIssue(&gh.Issue{Number: 93, State: core.StateBuilding, Meta: gh.Metadata{DependsOn: []int{90}}})
+	fgh.seedIssue(&gh.Issue{Number: 99, State: core.StatePlanned}) // no epic link
+
+	code := run(e, []string{"build", "90"})
+	if code != exitOK {
+		t.Fatalf("build epic exit = %d, want 0\n%s", code, errBuf(e))
+	}
+	approved := map[int]bool{}
+	for _, c := range fgh.setStateCalls {
+		if c.to != core.StateApproved {
+			t.Fatalf("unexpected transition %+v", c)
+		}
+		approved[c.number] = true
+	}
+	if !approved[91] || !approved[92] || len(approved) != 2 {
+		t.Fatalf("approved = %v, want exactly {91, 92}", approved)
+	}
+	if !strings.Contains(outBuf(e).String(), "approved 2 issues of epic #90") {
+		t.Fatalf("output = %q", outBuf(e).String())
+	}
+}
+
+// An epic with nothing planned fails loudly rather than pretending.
+func TestBuildEpicWithoutPlannedChildrenFails(t *testing.T) {
+	e := newTestEnv(t)
+	fgh := e.newGH.mustFake(t)
+	fgh.seedIssue(&gh.Issue{Number: 90, Title: "Epic: empty", IsEpic: true})
+
+	if code := run(e, []string{"build", "90"}); code == exitOK {
+		t.Fatal("build of childless epic should fail")
+	}
+	if len(fgh.setStateCalls) != 0 {
+		t.Fatalf("no SetState expected; got %+v", fgh.setStateCalls)
 	}
 }
 
