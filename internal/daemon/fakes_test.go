@@ -151,6 +151,15 @@ func (f *fakeGH) SetState(_ context.Context, _ gh.Repo, number int, to core.Stat
 	if !ok {
 		return fmt.Errorf("fakeGH: issue #%d not found", number)
 	}
+	// Mirror the real client exactly (internal/gh SetState): same-state is an
+	// idempotent no-op, an illegal move returns *gh.TransitionError and writes
+	// nothing. Without this, tests pass transitions production rejects.
+	if iss.State == to {
+		return nil
+	}
+	if !core.CanTransition(iss.State, to) {
+		return &gh.TransitionError{Issue: number, From: iss.State, To: to}
+	}
 	iss.State = to
 	f.setStateCalls = append(f.setStateCalls, stateChange{issue: number, to: to})
 	return nil

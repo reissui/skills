@@ -329,10 +329,10 @@ func (p *Pipeline) applyRevisedBodies(ctx context.Context, prev, revised PlanOut
 }
 
 // resumePlan reconstructs a PlanResult for an already-created epic (crash
-// recovery). It reports the epic and its children by reading the epic body's
-// dependency graph is out of scope here; the caller passes the epic number and
-// we return it with no re-creation. Children are re-linted so residual failures
-// still surface.
+// recovery). It only confirms the epic exists and returns its number — no
+// re-creation, no re-lint, no child enumeration (children keep whatever state
+// the crashed run left; the plan-gate summary for a resumed plan names just
+// the epic and the owner reviews it on GitHub).
 func (p *Pipeline) resumePlan(ctx context.Context, epicNumber int) (PlanResult, error) {
 	epic, err := p.deps.GH.GetIssue(ctx, p.cfg.Repo, epicNumber)
 	if err != nil {

@@ -74,6 +74,33 @@ func TestIdeaPlansThroughGate(t *testing.T) {
 	}
 }
 
+// --- Criterion: a running plan consumes no build slot — builds dispatch at
+// full MaxParallel while planning is in flight ---
+
+func TestPlanDoesNotConsumeBuildSlot(t *testing.T) {
+	stages := newFakeStages()
+	planGate := stages.holdPlan()
+	defer close(planGate)
+	stages.holdBuild(20) // keep the build pinned "running" for the assertion window
+	h := newHarness(t, stages)
+	h.d.cfg.MaxParallel = 1 // one slot: a slot-consuming plan would starve it
+	h.ideaIssue(10, "widgets")
+	h.approvedIssue(20, nil, []string{"a/**"})
+	h.runDaemon(t)
+
+	// The plan is running (held) AND the single build slot still dispatches.
+	if !waitFor(2*time.Second, func() bool { return stages.planCallCount() == 1 }) {
+		t.Fatal("plan never dispatched")
+	}
+	if !waitFor(2*time.Second, func() bool {
+		stages.mu.Lock()
+		defer stages.mu.Unlock()
+		return len(stages.buildCalls) == 1 && stages.buildCalls[0] == 20
+	}) {
+		t.Fatal("build starved while a plan was running (plan consumed the build slot)")
+	}
+}
+
 // --- Criterion: a failing plan reverts to clex:idea once (no hot loop) and
 // /steer re-arms it ---
 

@@ -161,13 +161,14 @@ func findPlannedEpic(issues []*gh.Issue, idea int) int {
 	return 0
 }
 
-// oneLineOf collapses whitespace to a single compact line for Telegram/log use.
+// oneLineOf collapses whitespace to a single compact line for Telegram/log use,
+// capped on a rune boundary.
 func oneLineOf(s string) string {
 	fields := strings.Fields(s)
 	out := strings.Join(fields, " ")
 	const max = 200
 	if len(out) > max {
-		out = out[:max] + "…"
+		out = cutAtRune(out, max) + "…"
 	}
 	return out
 }

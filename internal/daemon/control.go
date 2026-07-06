@@ -123,12 +123,19 @@ func (d *Daemon) steer(ctx context.Context, issue int, text string) string {
 	d.mu.Lock()
 	rs, running := d.running[issue]
 	var model core.Model
-	var resumeID string
+	var resumeID, stage string
 	if running {
 		model = rs.model
 		resumeID = rs.sessionID
+		stage = rs.stage
 	}
 	d.mu.Unlock()
+	if running && stage == "plan" {
+		// A plan run has no worktree and no resumable build session to inject
+		// into; steering it mid-flight would spawn an unrelated process. The
+		// plan gate (or /stop + steer + re-plan) is the steering point.
+		return fmt.Sprintf("#%d is planning — wait for the plan gate, or /stop %d first", issue, issue)
+	}
 	if running {
 		d.logEvent(ctx, issue, "steer", "delivered to active runner as a resumed turn")
 		d.notify(ctx, fmt.Sprintf("↳ steer queued for #%d (active runner)", issue))

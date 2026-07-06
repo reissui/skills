@@ -247,6 +247,12 @@ func (d *Daemon) schedulerState(issues []*gh.Issue) scheduler.SchedulerState {
 	d.mu.Lock()
 	var running []scheduler.Running
 	for _, rs := range d.running {
+		if rs.stage == "plan" {
+			// Planning shares the running set (for /status and /stop) but not
+			// the scheduler's build slots: a plan must never starve builds out
+			// of MaxParallel.
+			continue
+		}
 		running = append(running, scheduler.Running{
 			Issue:    rs.issue,
 			Provider: rs.provider,

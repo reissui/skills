@@ -200,14 +200,14 @@ func (d *Daemon) planCommand(ctx context.Context, args string) string {
 func (d *Daemon) buildCommand(ctx context.Context, n int) string {
 	iss, err := d.deps.GH.GetIssue(ctx, d.cfg.Repo, n)
 	if err != nil {
-		return fmt.Sprintf("✗ #%d not found: %s", n, oneLineOf(err.Error()))
+		return fmt.Sprintf("✗ #%d not found: %s", n, oneLineOf(d.red.Redact(err.Error())))
 	}
 	if !iss.IsEpic {
 		if iss.State != core.StatePlanned {
 			return fmt.Sprintf("#%d is %s — /build approves planned issues", n, stateOrNone(iss.State))
 		}
 		if err := d.deps.GH.SetState(ctx, d.cfg.Repo, n, core.StateApproved); err != nil {
-			return fmt.Sprintf("✗ approve #%d: %s", n, oneLineOf(err.Error()))
+			return fmt.Sprintf("✗ approve #%d: %s", n, oneLineOf(d.red.Redact(err.Error())))
 		}
 		d.logEvent(ctx, n, "gate", "approved via /build")
 		return fmt.Sprintf("✅ #%d approved — building starts now", n)
@@ -245,21 +245,21 @@ func (d *Daemon) buildCommand(ctx context.Context, n int) string {
 
 // distillIdea asks the current chat session to compress the conversation into
 // an idea brief. It requires an existing session — with nothing discussed there
-// is nothing to plan.
+// is nothing to plan. It claims the chat slot for the duration so a concurrent
+// chat turn can never race it onto the same CLI session.
 func (d *Daemon) distillIdea(ctx context.Context) (string, error) {
-	d.mu.Lock()
-	resume := d.chat.sessionID
-	busy := d.chat.busy
-	d.mu.Unlock()
-	if resume == "" {
-		return "", fmt.Errorf("no chat to plan yet")
-	}
-	if busy {
-		return "", fmt.Errorf("chat is busy")
-	}
 	opt, err := d.chatOption()
 	if err != nil {
 		return "", err
+	}
+	resume, gen, ok := d.claimChat()
+	if !ok {
+		return "", fmt.Errorf("chat is busy")
+	}
+	sessionID := ""
+	defer func() { d.releaseChat(gen, sessionID) }()
+	if resume == "" {
+		return "", fmt.Errorf("no chat to plan yet")
 	}
 	runner, err := d.deps.RunnerFactory.RunnerFor(opt.Model)
 	if err != nil {
@@ -275,14 +275,10 @@ func (d *Daemon) distillIdea(ctx context.Context) (string, error) {
 		Fast:     opt.Fast,
 		ResumeID: resume,
 	}
-	text, sessionID, err := drainRun(ctx, runner, task, repoDirFor(d.cfg))
+	text, sid, err := drainRun(ctx, runner, task, repoDirFor(d.cfg))
+	sessionID = sid
 	if err != nil {
 		return "", fmt.Errorf("distill failed: %s", oneLineOf(d.red.Redact(err.Error())))
-	}
-	if sessionID != "" {
-		d.mu.Lock()
-		d.chat.sessionID = sessionID
-		d.mu.Unlock()
 	}
 	if strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("distill produced nothing")
@@ -290,8 +286,8 @@ func (d *Daemon) distillIdea(ctx context.Context) (string, error) {
 	return strings.TrimSpace(text), nil
 }
 
-// splitIdeaText splits idea text into a title (first line, trimmed) and the
-// full text as body.
+// splitIdeaText splits idea text into a title (first line, trimmed, cut on a
+// rune boundary) and the full text as body.
 func splitIdeaText(text string) (title, body string) {
 	title = strings.TrimSpace(text)
 	if i := strings.IndexByte(title, '\n'); i >= 0 {
@@ -299,7 +295,7 @@ func splitIdeaText(text string) (title, body string) {
 	}
 	const maxTitle = 120
 	if len(title) > maxTitle {
-		title = title[:maxTitle-1] + "…"
+		title = cutAtRune(title, maxTitle-len("…")) + "…"
 	}
 	return title, text
 }
