@@ -31,12 +31,17 @@ type GitHubPort interface {
 	ListIssues(ctx context.Context, repo gh.Repo) ([]*gh.Issue, error)
 	// GetIssue reads one issue.
 	GetIssue(ctx context.Context, repo gh.Repo, number int) (*gh.Issue, error)
+	// CreateIssue files a new issue with labels (used by /plan to file an idea).
+	CreateIssue(ctx context.Context, repo gh.Repo, title, body string, labels []string) (*gh.Issue, error)
 	// SetState moves an issue to a new pipeline state (label swap).
 	SetState(ctx context.Context, repo gh.Repo, number int, to core.State) error
 	// Comment posts a comment.
 	Comment(ctx context.Context, repo gh.Repo, number int, body string) error
 	// UpdateIssue edits an issue's title/body (used by idle/epic steer).
 	UpdateIssue(ctx context.Context, repo gh.Repo, number int, title, body *string) (*gh.Issue, error)
+	// MergePR merges a pull request (the /merge confirm path for the final epic
+	// PR). method mirrors gh.Client.MergePR ("merge", "squash", "rebase").
+	MergePR(ctx context.Context, repo gh.Repo, number int, method, commitMessage string) (sha string, err error)
 }
 
 // TelegramPort is the subset of the Telegram transport the daemon drives: it
@@ -51,6 +56,9 @@ type TelegramPort interface {
 	Ask(ctx context.Context, q telegram.Question) (telegram.Answer, error)
 	// Handle registers a slash-command handler (/status, /pause, ...).
 	Handle(name string, h telegram.CommandHandler)
+	// OnText registers the free-text callback (chat). text is trimmed;
+	// replyToMsgID is the replied-to message id (0 if none).
+	OnText(fn func(ctx context.Context, text string, replyToMsgID int))
 }
 
 // Stages is the subset of *pipeline.Pipeline the daemon invokes. Declaring it as

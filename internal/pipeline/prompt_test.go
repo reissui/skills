@@ -54,6 +54,14 @@ func TestBuilderPreamblePresent(t *testing.T) {
 	if !strings.HasPrefix(prompt, BuilderPreamble) {
 		t.Errorf("builder prompt must start with BuilderPreamble")
 	}
+	// The goal-driven directive follows the security preamble: complete with no
+	// human in the loop, never stop to ask.
+	if !strings.Contains(prompt, BuilderGoalDirective) {
+		t.Errorf("builder prompt must carry BuilderGoalDirective")
+	}
+	if strings.Index(prompt, BuilderGoalDirective) < strings.Index(prompt, BuilderPreamble) {
+		t.Error("goal directive must not displace the security preamble")
+	}
 	// The substitution note must be surfaced in the prompt (visibility).
 	if !strings.Contains(prompt, "author untrusted") {
 		t.Errorf("builder prompt should surface the substitution reason")

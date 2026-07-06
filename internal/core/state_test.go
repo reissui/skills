@@ -9,6 +9,7 @@ var legalTransitions = []struct{ from, to State }{
 	{StateIdea, StateResearching},
 	{StateResearching, StatePlanned},
 	{StateResearching, StateFailed},
+	{StateResearching, StateIdea}, // plan failure/stop/recovery reverts to idea
 	{StatePlanned, StateApproved},
 	{StatePlanned, StateResearching},
 	{StateApproved, StateBuilding},

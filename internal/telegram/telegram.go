@@ -110,6 +110,11 @@ type Transport struct {
 	// onImages, if set, is invoked after an image (or album) is spooled.
 	onImages func(files []string, replyToMsgID int)
 
+	// onText, if set, is invoked for authorized non-command, non-image free text
+	// that no pending alter consumed. Unset, such text is ignored (pre-chat
+	// behavior).
+	onText func(ctx context.Context, text string, replyToMsgID int)
+
 	// pending tracks in-flight Ask questions awaiting a callback, keyed by the
 	// question's callback token, and text "alter" replies awaiting a line.
 	asks *askRegistry
@@ -208,6 +213,17 @@ func (t *Transport) EditLine(ctx context.Context, msgID int, text string) error 
 func (t *Transport) OnImages(fn func(files []string, replyToMsgID int)) {
 	t.mu.Lock()
 	t.onImages = fn
+	t.mu.Unlock()
+}
+
+// OnText registers the callback invoked for authorized free text that is not a
+// command, not an image, and not a pending alter reply. text is trimmed;
+// replyToMsgID is the id of the message the text replied to (0 if none). The
+// chat layer (daemon) decides what a message means — the transport only moves
+// it. Must be called before Run.
+func (t *Transport) OnText(fn func(ctx context.Context, text string, replyToMsgID int)) {
+	t.mu.Lock()
+	t.onText = fn
 	t.mu.Unlock()
 }
 

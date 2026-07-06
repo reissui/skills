@@ -33,6 +33,13 @@ type fakeStages struct {
 	escalateTo core.Model
 	escalateOK bool
 
+	// plan scripting + records
+	planResult   pipeline.PlanResult
+	planErr      error
+	planGate     chan struct{}
+	planCalls    []int
+	planExisting []int
+
 	// records
 	buildCalls    []int
 	reviewCalls   []int
@@ -58,8 +65,41 @@ func newFakeStages() *fakeStages {
 	}
 }
 
-func (s *fakeStages) Plan(_ context.Context, _ *gh.Issue, _ pipeline.PlanInputs, _ int) (pipeline.PlanResult, error) {
-	return pipeline.PlanResult{}, nil
+func (s *fakeStages) Plan(ctx context.Context, iss *gh.Issue, _ pipeline.PlanInputs, existingEpic int) (pipeline.PlanResult, error) {
+	s.mu.Lock()
+	s.planCalls = append(s.planCalls, iss.Number)
+	s.planExisting = append(s.planExisting, existingEpic)
+	gate := s.planGate
+	err := s.planErr
+	res := s.planResult
+	s.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return pipeline.PlanResult{}, ctx.Err()
+		}
+	}
+	if err != nil {
+		return pipeline.PlanResult{}, err
+	}
+	return res, nil
+}
+
+// holdPlan makes Plan block until the returned channel is closed (or the
+// context is cancelled), so tests can pin a plan "running".
+func (s *fakeStages) holdPlan() chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.planGate = make(chan struct{})
+	return s.planGate
+}
+
+// planCallCount returns how many times Plan ran (test helper).
+func (s *fakeStages) planCallCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.planCalls)
 }
 
 func (s *fakeStages) Build(ctx context.Context, _ int, iss *gh.Issue, _ pipeline.KnowledgeExcerpts, _ int) (pipeline.BuildResult, error) {

@@ -61,8 +61,15 @@ func (t *Transport) handleMessage(ctx context.Context, m *models.Message) {
 		t.dispatchCommand(ctx, text)
 		return
 	}
-	// Non-command, non-image free text with no pending alter is not the
-	// transport's concern (intake/Q&A is #18); ignore at this layer.
+	// Non-command, non-image free text with no pending alter is chat: hand it to
+	// the registered text callback. Empty text (e.g. stickers) is ignored, as is
+	// everything when no callback is registered.
+	t.mu.Lock()
+	onText := t.onText
+	t.mu.Unlock()
+	if onText != nil && text != "" {
+		onText(ctx, text, replyToID(m))
+	}
 }
 
 // dispatchCommand routes a "/name args" message to a registered handler, or

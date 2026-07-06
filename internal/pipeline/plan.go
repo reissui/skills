@@ -93,7 +93,7 @@ func (p *Pipeline) Plan(ctx context.Context, ideaIssue *gh.Issue, in PlanInputs,
 	}
 
 	// 3. Create the epic + children on GitHub.
-	res, err := p.createPlan(ctx, plan)
+	res, err := p.createPlan(ctx, plan, ideaIssue.Number)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -142,12 +142,30 @@ func (p *Pipeline) runPlanner(ctx context.Context, r Runner, opt runOption, idea
 	return plan, nil
 }
 
+// PlannedFromMarker returns the provenance line createPlan appends to the epic
+// body. The daemon's crash recovery scans open epics for it to find the epic a
+// half-finished plan already created, so a re-run resumes instead of
+// duplicating (Plan's existingEpicNumber short-circuit).
+func PlannedFromMarker(ideaNumber int) string {
+	return fmt.Sprintf("_Planned from #%d by clex._", ideaNumber)
+}
+
 // createPlan creates the epic issue and each child, wiring dependency numbers
 // and appending the metadata block. Children are created in plan order so their
 // GitHub numbers are known before later children reference them.
-func (p *Pipeline) createPlan(ctx context.Context, plan PlanOutput) (PlanResult, error) {
+//
+// Children are labelled clex:planned — NOT approved: nothing builds until the
+// owner passes the plan gate (/build <epic#> or clex build). Every child lists
+// the epic among its DependsOn numbers: that link is how the daemon resolves a
+// child's epic (integration branch) and enumerates an epic's children; the
+// scheduler ignores it (epics are not dispatchable units, so an unknown dep is
+// not a blocker).
+func (p *Pipeline) createPlan(ctx context.Context, plan PlanOutput, ideaNumber int) (PlanResult, error) {
 	var res PlanResult
 	epicBody := plan.EpicBody
+	if ideaNumber > 0 {
+		epicBody = strings.TrimRight(epicBody, "\n") + "\n\n" + PlannedFromMarker(ideaNumber)
+	}
 	epicTitle := plan.EpicTitle
 	if epicTitle == "" {
 		epicTitle = "Epic"
@@ -162,14 +180,14 @@ func (p *Pipeline) createPlan(ctx context.Context, plan PlanOutput) (PlanResult,
 	ordinalToNumber := make(map[int]int, len(plan.Issues))
 	for i, ci := range plan.Issues {
 		ordinal := i + 1
-		var deps []int
+		deps := []int{epic.Number}
 		for _, o := range ci.DependsOnOrdinals {
 			if n, ok := ordinalToNumber[o]; ok {
 				deps = append(deps, n)
 			}
 		}
 		body := composeIssueBody(ci.Body, deps, ci)
-		labels := []string{string(core.StateApproved)}
+		labels := []string{string(core.StatePlanned)}
 		created, cerr := p.deps.GH.CreateIssue(ctx, p.cfg.Repo, ci.Title, body, labels)
 		if cerr != nil {
 			return res, fmt.Errorf("plan: create child %q: %w", ci.Title, cerr)
@@ -311,10 +329,10 @@ func (p *Pipeline) applyRevisedBodies(ctx context.Context, prev, revised PlanOut
 }
 
 // resumePlan reconstructs a PlanResult for an already-created epic (crash
-// recovery). It reports the epic and its children by reading the epic body's
-// dependency graph is out of scope here; the caller passes the epic number and
-// we return it with no re-creation. Children are re-linted so residual failures
-// still surface.
+// recovery). It only confirms the epic exists and returns its number — no
+// re-creation, no re-lint, no child enumeration (children keep whatever state
+// the crashed run left; the plan-gate summary for a resumed plan names just
+// the epic and the owner reviews it on GitHub).
 func (p *Pipeline) resumePlan(ctx context.Context, epicNumber int) (PlanResult, error) {
 	epic, err := p.deps.GH.GetIssue(ctx, p.cfg.Repo, epicNumber)
 	if err != nil {

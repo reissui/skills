@@ -202,6 +202,14 @@ func (r *realGH) SetState(ctx context.Context, repo gh.Repo, number int, to core
 	return r.c.SetState(ctx, repo, number, to)
 }
 
+func (r *realGH) GetIssue(ctx context.Context, repo gh.Repo, number int) (*gh.Issue, error) {
+	return r.c.GetIssue(ctx, repo, number)
+}
+
+func (r *realGH) ListOpenIssues(ctx context.Context, repo gh.Repo) ([]*gh.Issue, error) {
+	return r.c.ListOpenIssues(ctx, repo)
+}
+
 // TokenScopes issues a bare request and reads the X-OAuth-Scopes response header.
 // A fine-grained PAT returns an empty scope list; a classic PAT lists its scopes
 // (doctor warns when "repo" — full control — is present).

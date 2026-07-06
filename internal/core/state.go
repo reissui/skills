@@ -53,6 +53,9 @@ func IsPipelineState(s State) bool {
 //     approved.
 //   - Re-planning after a scope-changing steer sends a planned/approved issue
 //     back to researching (spec: Steering).
+//   - A planner failure, a /stop on a running plan, or crash recovery of an
+//     orphaned plan reverts the idea so it can be re-planned: researching →
+//     idea (the plan-stage mirror of building → approved).
 //
 // The terminal step "review → closed via merged PR" is modeled by GitHub issue
 // closure, not a label, so there is no outgoing edge from review here other
@@ -64,6 +67,7 @@ var transitions = map[State]map[State]bool{
 	StateResearching: {
 		StatePlanned: true,
 		StateFailed:  true,
+		StateIdea:    true, // plan failure/stop/recovery reverts to idea
 	},
 	StatePlanned: {
 		StateApproved:    true,

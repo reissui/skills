@@ -93,6 +93,9 @@ type fakeGH struct {
 	createErr   error
 	setStateErr error
 	labelsErr   error
+
+	// issues backs GetIssue/ListOpenIssues for `clex build <epic#>` tests.
+	issues map[int]*gh.Issue
 }
 
 type createdIssue struct {
@@ -143,6 +146,40 @@ func (f *fakeGH) SetState(_ context.Context, repo gh.Repo, number int, to core.S
 	}
 	f.setStateCalls = append(f.setStateCalls, setStateCall{repo, number, to})
 	return nil
+}
+
+func (f *fakeGH) GetIssue(_ context.Context, _ gh.Repo, number int) (*gh.Issue, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if iss, ok := f.issues[number]; ok {
+		cp := *iss
+		return &cp, nil
+	}
+	// Issues not seeded read as plain (non-epic) issues so setIssueState-style
+	// paths keep working without seeding.
+	return &gh.Issue{Number: number}, nil
+}
+
+func (f *fakeGH) ListOpenIssues(_ context.Context, _ gh.Repo) ([]*gh.Issue, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*gh.Issue
+	for _, iss := range f.issues {
+		cp := *iss
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
+// seedIssue registers an issue for GetIssue/ListOpenIssues (test helper).
+func (f *fakeGH) seedIssue(iss *gh.Issue) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.issues == nil {
+		f.issues = make(map[int]*gh.Issue)
+	}
+	cp := *iss
+	f.issues[iss.Number] = &cp
 }
 
 func (f *fakeGH) TokenScopes(context.Context) ([]string, error) { return f.scopes, f.scopesErr }

@@ -64,6 +64,8 @@ func (c *captureTG) Ask(ctx context.Context, q telegram.Question) (telegram.Answ
 
 func (c *captureTG) Handle(name string, h telegram.CommandHandler) {}
 
+func (c *captureTG) OnText(fn func(ctx context.Context, text string, replyToMsgID int)) {}
+
 func (c *captureTG) sent() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -259,80 +261,8 @@ func (h *harness) startDaemon(ctx context.Context) (*daemon.Daemon, context.Canc
 	return d, cancel
 }
 
-// linkChildToEpic appends the epic to a child's Depends-on so the daemon can
-// resolve the child's epic and gate assembly on it. In production the epic
-// linkage is established at plan/approve time; the harness performs it
-// explicitly. It rebuilds the child's clex metadata block from the parsed
-// metadata, PRESERVING Touches / Difficulty / Verify (dropping them would make
-// every child a touches-wildcard and wrongly serialize the whole plan).
-func (h *harness) linkChildToEpic(ctx context.Context, child, epic int) {
-	h.t.Helper()
-	iss, err := h.ghc.GetIssue(ctx, testRepo, child)
-	if err != nil {
-		h.t.Fatalf("get child #%d: %v", child, err)
-	}
-	body := rewriteMetadata(iss.Body, iss.Meta, epic)
-	if _, err := h.ghc.UpdateIssue(ctx, testRepo, child, nil, &body); err != nil {
-		h.t.Fatalf("link child #%d to epic #%d: %v", child, epic, err)
-	}
-}
-
-// rewriteMetadata rebuilds the body's clex metadata block, adding epic to
-// Depends-on while preserving the existing Touches, Difficulty, and Verify from
-// the parsed metadata. TouchesWildcard (no explicit Touches line) is preserved
-// as "no Touches line" so the meaning is unchanged.
-func rewriteMetadata(body string, meta gh.Metadata, epic int) string {
-	deps := append([]int{}, meta.DependsOn...)
-	found := false
-	for _, d := range deps {
-		if d == epic {
-			found = true
-		}
-	}
-	if !found {
-		deps = append(deps, epic)
-	}
-	base := stripClexBlock(body)
-	var b strings.Builder
-	if strings.TrimSpace(base) != "" {
-		b.WriteString(strings.TrimRight(base, "\n"))
-		b.WriteString("\n\n")
-	}
-	b.WriteString("```clex\n")
-	parts := make([]string, len(deps))
-	for i, d := range deps {
-		parts[i] = "#" + itoa(d)
-	}
-	fmt.Fprintf(&b, "Depends-on: %s\n", strings.Join(parts, ", "))
-	if !meta.TouchesWildcard && len(meta.Touches) > 0 {
-		fmt.Fprintf(&b, "Touches: %s\n", strings.Join(meta.Touches, ", "))
-	}
-	if meta.Difficulty != "" {
-		fmt.Fprintf(&b, "Difficulty: %s\n", meta.Difficulty)
-	}
-	if strings.TrimSpace(meta.Verify) != "" {
-		fmt.Fprintf(&b, "Verify: %s\n", meta.Verify)
-	}
-	b.WriteString("```")
-	return b.String()
-}
-
 // itoa avoids importing strconv for one call.
 func itoa(n int) string { return fmt.Sprintf("%d", n) }
-
-// stripClexBlock removes a trailing ```clex ... ``` fenced block if present.
-func stripClexBlock(body string) string {
-	idx := strings.LastIndex(body, "```clex")
-	if idx < 0 {
-		return body
-	}
-	rest := body[idx+len("```clex"):]
-	end := strings.Index(rest, "```")
-	if end < 0 {
-		return body[:idx]
-	}
-	return body[:idx] + rest[end+3:]
-}
 
 // --- git repo setup ---
 

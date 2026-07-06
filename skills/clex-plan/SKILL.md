@@ -18,10 +18,37 @@ here", `LOG.md` for what has already been built). Never re-explore history that
 
 ## Output 1 — the PRD epic
 
-Write `PRD.md`; it becomes the epic issue body. It states the problem, the
-approach, the non-goals, and the acceptance criteria for the epic as a whole. It
-does **not** contain implementation detail that belongs in a child issue — the
-PRD is the "why" and the "what"; child issues are the "how".
+Write `PRD.md`; it becomes the epic issue body. It is the "why" and the "what";
+child issues are the "how" — it does **not** contain implementation detail that
+belongs in a child issue. Use exactly these sections, in this order:
+
+```md
+## Problem Statement
+Narrative plus a numbered defect/need list, each grounded in evidence
+(file:line where known, or the owner's words from the idea).
+
+## Solution
+One paragraph: the strategy, the integration branch, one PR to main.
+
+## User Stories
+Numbered "As a <role>, I want <capability>, so that <outcome>."
+
+## Implementation Decisions
+Numbered, concrete engineering decisions (API shapes, precedence rules,
+library choices). Every decision a builder would otherwise have to make.
+
+## Testing Decisions
+Which framework per area; the named prior-art test files to extend; the rule
+that tests assert external behaviour, not internal call sequences; the epic-
+level verification command that must pass before the final PR.
+
+## Out of Scope
+Explicit non-goals, so builders never widen scope.
+
+## Task index
+| # | Title | Depends on | Parallel-safe |
+One row per child issue in plan order (numbers are assigned on creation).
+```
 
 ## Output 2 — the child issues
 
@@ -35,7 +62,9 @@ issue MUST contain, in this order:
    "and related files"; list them. This list is also the builder's read scope.
 4. **Acceptance criteria** — a checklist of exact, testable statements. Each
    criterion is something a test or a command can confirm true or false. No
-   vague criteria ("works well", "is fast") — quantify or make binary.
+   vague criteria ("works well", "is fast") — quantify or make binary. One
+   criterion MUST name the regression test the builder adds or extends (file
+   path + what it asserts), so every issue leaves a named test behind.
 5. **Verification** — the single exact command a builder runs to prove the issue
    is done (e.g. `go test ./internal/foo/... && go vet ./internal/foo/...`). It
    must be copy-pasteable and must pass clean when the issue is complete.
@@ -58,6 +87,12 @@ issue MUST contain, in this order:
    - `Difficulty:` — one of `trivial | standard | complex`. This is the router's
      input for choosing a builder model; estimate honestly against how hard the
      concern is, not how large the diff is.
+
+**Close out every epic with an acceptance issue.** The final child issue (after
+all others in `Depends-on`) re-runs the epic's user stories end-to-end against
+the integration branch and confirms the epic-level verification passes with
+zero manual fixes. It is the "does the whole thing actually work" gate before
+the single PR to main.
 
 ## The executability test (apply to EVERY child issue)
 
