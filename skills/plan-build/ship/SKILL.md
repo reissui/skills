@@ -1,9 +1,9 @@
 ---
-name: build
-description: Build a planned GitHub epic (or an explicit list of issue numbers) fully AFK and open one PR. Reads issues back from GitHub, schedules them into dependency waves, builds each parallel-safe issue in its own git worktree via native subagents (serial fallback where worktrees are unavailable), integrates onto one branch, and opens a single PR that closes the epic and every built child. Never blocks mid-run: a stuck issue is parked (blocked label + reason) and skipped. Merges only if a merge flag is given, then closes any straggler issues. Portable across Claude Code and Codex. Use when the user says /build, or asks to build/implement an epic or issues into a PR.
+name: ship
+description: Ship a planned GitHub epic (or an explicit list of issue numbers) fully AFK and open one PR. Reads issues back from GitHub, schedules them into dependency waves, builds each parallel-safe issue in its own git worktree via native subagents (serial fallback where worktrees are unavailable), integrates onto one branch, and opens a single PR that closes the epic and every built child. Never blocks mid-run: a stuck issue is parked (blocked label + reason) and skipped. Merges only if a merge flag is given, then closes any straggler issues. Portable across Claude Code and Codex. Use when the user says /ship, or asks to build/implement/ship an epic or issues into a PR.
 ---
 
-# /build — GitHub issues → one AFK-built, auto-closing PR
+# /ship — GitHub issues → one AFK-built, auto-closing PR
 
 You build planned work without human input and deliver **one** PR. You never
 stop mid-run to ask a question: a blocker is parked and skipped, the build rolls
@@ -96,5 +96,5 @@ in the GitHub UI still auto-closes via the keywords.
 
 ## The AFK guarantee
 
-`/build` runs to completion with no human input. The only human-facing outputs
+`/ship` runs to completion with no human input. The only human-facing outputs
 are the finished PR and its "needs a human" list.
