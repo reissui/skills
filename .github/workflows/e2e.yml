@@ -11,6 +11,9 @@ permissions:
 jobs:
   fake-runner-e2e:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
     steps:
       - uses: actions/checkout@v4
 
@@ -19,6 +22,7 @@ jobs:
         with:
           go-version: "1.26"
           check-latest: true
+          cache-dependency-path: go/go.sum
 
       - name: Run opt-in fake-runner e2e
         run: go test -tags e2e ./e2e/...
