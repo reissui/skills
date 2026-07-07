@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Ship a planned GitHub epic (or an explicit list of issue numbers) fully AFK and open one PR. Reads issues back from GitHub, schedules them into dependency waves, builds each parallel-safe issue in its own git worktree via native subagents (serial fallback where worktrees are unavailable), integrates onto one branch, and opens a single PR that closes the epic and every built child. Never blocks mid-run: a stuck issue is parked (blocked label + reason) and skipped. Merges only if a merge flag is given, then closes any straggler issues. Portable across Claude Code and Codex. Use when the user says /ship, or asks to build/implement/ship an epic or issues into a PR.
+description: Ship a planned GitHub epic (or an explicit list of issue numbers) fully AFK and open one PR. Reads issues back from GitHub, schedules them into dependency waves, builds each parallel-safe issue in its own git worktree via native subagents (serial fallback where worktrees are unavailable), integrates onto one branch, and opens a single PR that closes the epic and every built child. Never blocks mid-run — a stuck issue is parked (blocked label + reason) and skipped. Merges only if a merge flag is given, then closes any straggler issues. Portable across Claude Code and Codex. Use when the user says /ship, or asks to build/implement/ship an epic or issues into a PR.
 ---
 
 # /ship — GitHub issues → one AFK-built, auto-closing PR
