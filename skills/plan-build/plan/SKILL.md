@@ -67,7 +67,7 @@ contain, in this order:
      `Depends-on: none` if it depends on nothing.
    - `Touches:` — file globs this issue may write, comma-separated, doublestar
      style (`internal/foo/**`). **Never omit** — a missing value serializes the
-     whole epic. Disjoint `Touches` sets across issues are what let `/build` run
+     whole epic. Disjoint `Touches` sets across issues are what let `/ship` run
      them in parallel.
    - `Difficulty:` — one of `trivial | standard | complex`.
 
