@@ -12,3 +12,6 @@ coverage.txt
 
 # Local runtime state (never committed)
 /.clex/
+
+# Working scratch from the clex build (never committed)
+/scratch/
