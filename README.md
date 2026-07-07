@@ -1,14 +1,14 @@
 # reissui/skills
 
 Portable, AFK development orchestration for coding agents. Two skills —
-**`/plan`** and **`/build`** — that take a feature idea to a merged PR, working
+**`/plan`** and **`/ship`** — that take a feature idea to a merged PR, working
 identically in **Claude Code** and **Codex**, with no daemon and no build step.
 GitHub issues are the only state store, so you can plan an idea in one AI and
 build it in another.
 
 ```
 /plan  <idea>   → a GitHub epic (PRD) + dependency-ordered "dumb" child issues
-/build <epic#>  → parallel isolated builds → one PR that closes every issue
+/ship  <epic#>  → parallel isolated builds → one PR that closes every issue
 ```
 
 ## Install
@@ -29,7 +29,7 @@ command, and `Depends-on` / `Touches` / `Difficulty` metadata. It self-lints,
 shows you the plan once (skip with `--yolo`), then creates the issues on GitHub.
 Nothing is written to your repo.
 
-## `/build <epic#>` (or a list of issue numbers)
+## `/ship <epic#>` (or a list of issue numbers)
 
 Reads the issues back, schedules them into dependency waves, and builds each
 parallel-safe issue in its own git worktree (serial fallback where worktrees
