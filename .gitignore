@@ -15,3 +15,6 @@ coverage.txt
 
 # Working scratch from the clex build (never committed)
 /scratch/
+
+# Node (skills tooling: validator, changesets)
+/node_modules/
