@@ -1,15 +1,15 @@
 # reissui/skills
 
 Portable, AFK development orchestration for coding agents. The headline pair —
-**`/plan`** and **`/ship`** — take a feature idea to a merged PR, working
+**`/plan-prd`** and **`/ship`** — take a feature idea to a merged PR, working
 identically in **Claude Code** and **Codex**, with no daemon and no build step.
 GitHub issues are the only state store, so you can plan an idea in one AI and
 build it in another.
 
 ```
-/plan  <idea>   → a GitHub epic (PRD) + dependency-ordered "dumb" child issues
-/ship  <epic#>  → parallel isolated builds → one PR that closes every issue
-/grill <plan>   → get relentlessly interviewed until the plan is watertight
+/plan-prd <idea>  → a GitHub epic (PRD) + dependency-ordered "dumb" child issues
+/ship  <epic#>    → parallel isolated builds → one PR that closes every issue
+/grill <plan>     → get relentlessly interviewed until the plan is watertight
 ```
 
 ## Install
@@ -20,9 +20,9 @@ npx skills@latest add reissui/skills
 
 Pick the skills you want and the agent(s) to install them on (Claude Code and/or
 Codex). Run **`/setup-reissui-skills`** once per repo first — it confirms the
-GitHub remote + `gh` auth and agrees the label set `/plan` and `/ship` use.
+GitHub remote + `gh` auth and agrees the label set `/plan-prd` and `/ship` use.
 
-## `/plan <idea>`
+## `/plan-prd <idea>`
 
 Explores the repo live, then writes a PRD epic plus child issues so unambiguous
 that any capable model can build each without asking a question — one concern,
@@ -48,7 +48,7 @@ time (max 10), walking each branch of the decision tree and resolving
 dependencies between decisions. It looks up *facts* in the codebase itself and
 only puts *decisions* to you, each with a recommended answer. It won't enact the
 plan until you confirm you've reached a shared understanding. Pairs naturally in
-front of `/plan`.
+front of `/plan-prd`.
 
 ## `/setup-reissui-skills`
 
