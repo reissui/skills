@@ -8,20 +8,20 @@ import (
 	"testing"
 )
 
-// repoSkillsDir returns the absolute path to the repo skills/plan-build/
-// directory (three levels up from go/internal/skills, then into plan-build),
-// where the authoritative clex-authored skills live.
+// repoSkillsDir returns the absolute path to the repo-root skills/ directory
+// (three levels up from go/internal/skills), where the authoritative
+// clex-authored skills live as direct children.
 func repoSkillsDir(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Join(wd, "..", "..", "..", "skills", "plan-build")
+	return filepath.Join(wd, "..", "..", "..", "skills")
 }
 
 // TestAuthoredSkillsExistWithContract verifies both clex-authored SKILL.md
-// files exist under skills/plan-build/ with YAML frontmatter (name +
+// files exist under skills/ with YAML frontmatter (name +
 // description) and carry the contract language the spec requires.
 func TestAuthoredSkillsExistWithContract(t *testing.T) {
 	root := repoSkillsDir(t)
