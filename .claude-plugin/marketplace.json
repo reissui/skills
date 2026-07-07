@@ -1,0 +1,6 @@
+{
+  "name": "reissui-skills",
+  "description": "Portable AFK development orchestrator: /plan and /build across Claude Code and Codex.",
+  "owner": "reissui",
+  "skills": "./skills"
+}
