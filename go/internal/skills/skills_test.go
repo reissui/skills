@@ -2,29 +2,24 @@ package skills
 
 import (
 	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// repoSkillsDir returns the absolute path to the repo-root skills/ directory
-// (three levels up from go/internal/skills), where the authoritative
-// clex-authored skills live as direct children.
-func repoSkillsDir(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
+// The clex-authored skills (clex-plan, clex-issue-lint) live embedded in the
+// parked binary under bundled/. They were removed from the repo-root skills/
+// directory (which now distributes the standalone plan/ship/grill skills), so
+// these tests verify the EMBEDDED copies — the ones the binary actually ships —
+// rather than any repo-root file.
+
+// TestAuthoredSkillsExistWithContract verifies both clex-authored SKILL.md
+// files are embedded with YAML frontmatter (name + description) and carry the
+// contract language the spec requires.
+func TestAuthoredSkillsExistWithContract(t *testing.T) {
+	sub, err := BundledFS()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Join(wd, "..", "..", "..", "skills")
-}
-
-// TestAuthoredSkillsExistWithContract verifies both clex-authored SKILL.md
-// files exist under skills/ with YAML frontmatter (name +
-// description) and carry the contract language the spec requires.
-func TestAuthoredSkillsExistWithContract(t *testing.T) {
-	root := repoSkillsDir(t)
 	cases := []struct {
 		dir         string
 		wantName    string
@@ -36,7 +31,7 @@ func TestAuthoredSkillsExistWithContract(t *testing.T) {
 			mustContain: []string{
 				// The executability test, verbatim.
 				"could a modest local model complete this without asking a single question?",
-				// The metadata block shapes #6's parser reads.
+				// The metadata block shapes the planner emits.
 				"Depends-on:",
 				"Touches:",
 				"Difficulty:",
@@ -60,10 +55,9 @@ func TestAuthoredSkillsExistWithContract(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.dir, func(t *testing.T) {
-			path := filepath.Join(root, tc.dir, "SKILL.md")
-			data, err := os.ReadFile(path)
+			data, err := fs.ReadFile(sub, tc.dir+"/SKILL.md")
 			if err != nil {
-				t.Fatalf("read %s: %v", path, err)
+				t.Fatalf("read embedded %s: %v", tc.dir, err)
 			}
 			body := string(data)
 			// Frontmatter: must open with a YAML fence and declare name + description.
@@ -85,29 +79,22 @@ func TestAuthoredSkillsExistWithContract(t *testing.T) {
 	}
 }
 
-// TestBundledMatchesRepo guards against drift between the authoritative
-// repo-root skills/ and the embedded copies the installer ships.
-func TestBundledMatchesRepo(t *testing.T) {
-	root := repoSkillsDir(t)
+// TestBundledSkillsPresent verifies both clex-authored skills are embedded and
+// each embedded SKILL.md is non-empty.
+func TestBundledSkillsPresent(t *testing.T) {
+	sub, err := BundledFS()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range BundledNames() {
-		repoPath := filepath.Join(root, name, "SKILL.md")
-		repoData, err := os.ReadFile(repoPath)
-		if err != nil {
-			t.Fatalf("read repo skill %s: %v", name, err)
-		}
-		sub, err := BundledFS()
-		if err != nil {
-			t.Fatal(err)
-		}
-		embData, err := fs.ReadFile(sub, name+"/SKILL.md")
+		data, err := fs.ReadFile(sub, name+"/SKILL.md")
 		if err != nil {
 			t.Fatalf("read embedded skill %s: %v", name, err)
 		}
-		if string(repoData) != string(embData) {
-			t.Errorf("bundled %s/SKILL.md differs from repo copy; re-copy skills/%s into internal/skills/bundled/%s", name, name, name)
+		if len(data) == 0 {
+			t.Errorf("embedded %s/SKILL.md is empty", name)
 		}
 	}
-	// Both clex-authored skills must be embedded.
 	names := strings.Join(BundledNames(), ",")
 	for _, want := range []string{"clex-plan", "clex-issue-lint"} {
 		if !strings.Contains(names, want) {
