@@ -9,15 +9,15 @@ import (
 )
 
 // repoSkillsDir returns the absolute path to the repo-root skills/ directory
-// (two levels up from internal/skills), where the authoritative clex-authored
-// skills live.
+// (three levels up from go/internal/skills), where the authoritative
+// clex-authored skills live.
 func repoSkillsDir(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Join(wd, "..", "..", "skills")
+	return filepath.Join(wd, "..", "..", "..", "skills")
 }
 
 // TestAuthoredSkillsExistWithContract verifies both clex-authored SKILL.md

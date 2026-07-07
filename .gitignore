@@ -1,6 +1,6 @@
 # Build artifacts
-/bin/
-/dist/
+/go/bin/
+/go/dist/
 
 # Go
 *.test
