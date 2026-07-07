@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
 
-# Let the workflow open its version PR and push tags.
+# Let the workflow open its version PR and push tags / releases.
 permissions:
   contents: write
   pull-requests: write
@@ -21,11 +21,28 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      # Opens/updates a "Version Packages" PR when changesets are pending;
-      # when that PR merges (no pending changesets), tags the release.
+      # When changesets are pending, opens/updates a "Version Packages" PR.
+      # When that PR merges (no pending changesets), this is a no-op and the
+      # tag step below cuts the release.
       - uses: changesets/action@v1
         with:
           version: npm run version
-          publish: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Tag + GitHub Release for the current package.json version, unless that
+      # tag already exists. This package is repo-installed (npx skills), not
+      # published to npm, so changeset's own tagging (which keys off published
+      # packages) does nothing — we tag from the version directly. Idempotent:
+      # only the commit that lands a new version actually creates a tag.
+      - name: Tag release if version is new
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if git rev-parse "$version" >/dev/null 2>&1; then
+            echo "$version already tagged — nothing to release."
+            exit 0
+          fi
+          git tag "$version"
+          git push origin "$version"
+          gh release create "$version" --title "$version" --notes-file CHANGELOG.md
