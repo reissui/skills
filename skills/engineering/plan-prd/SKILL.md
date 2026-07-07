@@ -1,9 +1,9 @@
 ---
-name: plan
-description: Turn a feature idea into a GitHub epic (PRD) plus dependency-ordered "dumb" child issues that any capable AI can build without asking a question. Explores the repo live, decomposes to the one-concern/files-enumerated/testable-acceptance/verification-command/metadata contract, self-lints, gates once (skippable), then creates the issues via gh. GitHub is the only store — no files written to the repo. Portable across Claude Code and Codex. Use when the user says /plan, or asks to plan/spec/break down a feature into issues.
+name: plan-prd
+description: Turn a feature idea into a GitHub epic (PRD) plus dependency-ordered "dumb" child issues that any capable AI can build without asking a question. Explores the repo live, decomposes to the one-concern/files-enumerated/testable-acceptance/verification-command/metadata contract, self-lints, gates once (skippable), then creates the issues via gh. GitHub is the only store — no files written to the repo. Portable across Claude Code and Codex. Use when the user says /plan-prd, or asks to plan/spec/break down a feature into issues.
 ---
 
-# /plan — idea → GitHub epic + agent-ready issues
+# /plan-prd — idea → GitHub epic + agent-ready issues
 
 You convert one idea into (a) a **PRD epic** and (b) **child issues** so
 unambiguous that a modest model can build each in parallel with zero further
@@ -20,7 +20,7 @@ Learn "how this repo works" at plan time; do not write state files. Read the
 `Makefile`, `package.json` scripts, `pyproject.toml`, CI workflow, etc.); grep
 for local conventions; skim recent commits for patterns. Bake what you learn
 into the PRD's Implementation/Testing Decisions and into each issue. If the repo
-has no GitHub remote, stop and tell the user `/plan` needs a GitHub-backed
+has no GitHub remote, stop and tell the user `/plan-prd` needs a GitHub-backed
 checkout.
 
 ## Step 2 — Draft the PRD epic

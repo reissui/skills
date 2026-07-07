@@ -4,10 +4,10 @@
   "plugins": [
     {
       "name": "reissui-skills",
-      "description": "Portable AFK development orchestrator: /plan, /ship, /grill across Claude Code and Codex.",
+      "description": "Portable AFK development orchestrator: /plan-prd, /ship, /grill across Claude Code and Codex.",
       "source": ".",
       "skills": [
-        "skills/engineering/plan",
+        "skills/engineering/plan-prd",
         "skills/engineering/ship",
         "skills/engineering/grill",
         "skills/engineering/setup-reissui-skills"
