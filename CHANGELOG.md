@@ -1,5 +1,11 @@
 # reissui-skills
 
+## 0.4.0
+
+### Minor Changes
+
+- 87cc186: Make `plan-prd` and `ship` goal-aware, add resume-safe wave checkpoints, and use task-scoped follow-up loops only for external CI and review waits.
+
 ## 0.3.0
 
 ### Minor Changes
