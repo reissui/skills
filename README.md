@@ -1,8 +1,9 @@
 # reissui/skills
 
 Portable, AFK development orchestration for coding agents. The headline pair —
-**`/plan-prd`** and **`/ship`** — take a feature idea to a merged PR, working
-identically in **Claude Code** and **Codex**, with no daemon and no build step.
+**`/plan-prd`** and **`/ship`** — take a feature idea to a merged PR with the
+same GitHub-backed workflow in **Claude Code** and **Codex**, with no daemon or
+build step.
 GitHub issues are the only state store, so you can plan an idea in one AI and
 build it in another.
 
@@ -22,6 +23,12 @@ Pick the skills you want and the agent(s) to install them on (Claude Code and/or
 Codex). Run **`/setup-reissui-skills`** once per repo first — it confirms the
 GitHub remote + `gh` auth and agrees the label set `/plan-prd` and `/ship` use.
 
+Refresh an existing install after a release with:
+
+```sh
+npx skills@latest update plan-prd ship
+```
+
 ## `/plan-prd <idea>`
 
 Explores the repo live, then writes a PRD epic plus child issues so unambiguous
@@ -29,7 +36,9 @@ that any capable model can build each without asking a question — one concern,
 every file enumerated, exact testable acceptance criteria, one verification
 command, and `Depends-on` / `Touches` / `Difficulty` metadata. It self-lints,
 shows you the plan once (skip with `--yolo`), then creates the issues on GitHub.
-Nothing is written to your repo.
+Nothing is written to your repo. The normal approval gate stays outside Goal
+mode; a gate-free `--yolo` run uses native goal continuation when the host makes
+it callable.
 
 ## `/ship <epic#>` (or a list of issue numbers)
 
@@ -40,6 +49,11 @@ label + reason) and skipped, never blocking the run. It integrates onto one
 branch and opens a **single PR** that summarises the work and carries
 `Closes #` for the epic and every built issue, so merging closes them all. Pass
 `--merge` to merge automatically (and close any squash-merge stragglers).
+On hosts that expose native goals to skills, `/ship` keeps the root orchestration
+running against an explicit completion condition and emits a compact checkpoint
+after every dependency wave. Pass `--watch` (or ask it to babysit the PR) to use
+task-scoped scheduled follow-ups for pending CI and review state; loops are never
+used to replay the build workflow itself.
 
 ## `/grill <plan or design>`
 
