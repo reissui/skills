@@ -11,6 +11,7 @@ build it in another.
 /plan-prd <idea>  → a GitHub epic (PRD) + dependency-ordered "dumb" child issues
 /ship  <epic#>    → parallel isolated builds → one PR that closes every issue
 /grill <plan>     → get relentlessly interviewed until the plan is watertight
+/prm              → completed local work → verified PR → merge into main
 ```
 
 ## Install
@@ -63,6 +64,14 @@ dependencies between decisions. It looks up *facts* in the codebase itself and
 only puts *decisions* to you, each with a recommended answer. It won't enact the
 plan until you confirm you've reached a shared understanding. Pairs naturally in
 front of `/plan-prd`.
+
+## `/prm`
+
+Takes completed work in the current checkout all the way through a merged pull
+request. It scopes the intended diff, runs the repository's checks, commits and
+pushes a feature branch, opens or resumes one PR against `main`, waits for its
+required checks and review state, merges it, and refreshes the local `main`.
+Every step is resumable, and unrelated changes are never swept into the PR.
 
 ## `/setup-reissui-skills`
 
