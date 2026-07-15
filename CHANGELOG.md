@@ -1,5 +1,12 @@
 # reissui-skills
 
+## 0.5.0
+
+### Minor Changes
+
+- 55e611c: Add the portable `/prm` skill for turning completed local work into a verified
+  pull request and merging it into `main`.
+
 ## 0.4.0
 
 ### Minor Changes
