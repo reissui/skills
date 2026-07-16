@@ -11,6 +11,7 @@ build it in another.
 /plan-prd <idea>  → a GitHub epic (PRD) + dependency-ordered "dumb" child issues
 /ship  <epic#>    → parallel isolated builds → one PR that closes every issue
 /grill <plan>     → get relentlessly interviewed until the plan is watertight
+/fix <small task> → implement directly → focused check → merged PR
 /prm              → completed local work → verified PR → merge into main
 ```
 
@@ -27,7 +28,7 @@ GitHub remote + `gh` auth and agrees the label set `/plan-prd` and `/ship` use.
 Refresh an existing install after a release with:
 
 ```sh
-npx skills@latest update prm ship
+npx skills@latest update fix prm ship
 ```
 
 ## `/plan-prd <idea>`
@@ -64,6 +65,13 @@ dependencies between decisions. It looks up *facts* in the codebase itself and
 only puts *decisions* to you, each with a recommended answer. It won't enact the
 plan until you confirm you've reached a shared understanding. Pairs naturally in
 front of `/plan-prd`.
+
+## `/fix <small task>`
+
+Takes a small, well-scoped request such as a bug fix, typo, or config tweak from
+the prompt to a merged pull request. It works directly, runs one focused
+verification pass, opens or reuses a PR, and attempts an immediate squash merge.
+It avoids issues, plans, subagents, broad test matrices, and CI/review wait loops.
 
 ## `/prm`
 
