@@ -39,14 +39,25 @@ Topologically group issues by dependencies. Within each dependency wave, build
 issues with disjoint file scopes in parallel. Serialize issues that touch the
 same files.
 
-Spawn one subagent per parallel-safe issue in an isolated git worktree on a
-deterministic `build/issue-<n>` branch. Give it exactly one issue: implement the
-acceptance criteria, add the requested test, run the issue's verification when
-the implementation is ready, fix relevant failures, commit, and return a short
-result. Wait only for the active wave, then integrate it and start the next.
+For every active wave, the root agent must create or reuse each issue's isolated
+git worktree before delegation. Use a deterministic `build/issue-<n>` branch
+and pass the absolute worktree path to that issue's subagent. Each subagent is a
+leaf responsible for exactly one issue and must not spawn further agents.
+
+Submit every parallel-safe issue in the wave through one batch delegation call,
+up to the host's configured concurrency limit. If a wave exceeds that limit,
+process it in maximum-sized batches rather than serializing the whole wave. Do
+not dispatch parallel-safe issues one-by-one when batch delegation is available.
+
+Give each subagent exactly one issue: implement the acceptance criteria, add the
+requested test, run the issue's verification when the implementation is ready,
+fix relevant failures, commit, and return a short result. Wait only for the
+active batch or wave, then integrate it and start the next dependency-ready
+work.
 
 Reuse an existing issue branch or worktree instead of duplicating it. If
-worktrees are unavailable, build serially on the integration branch.
+worktrees or batch delegation are unavailable, build serially on the integration
+branch.
 
 ## Step 3 — Integrate and keep moving
 
