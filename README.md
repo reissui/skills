@@ -27,7 +27,7 @@ GitHub remote + `gh` auth and agrees the label set `/plan-prd` and `/ship` use.
 Refresh an existing install after a release with:
 
 ```sh
-npx skills@latest update plan-prd ship
+npx skills@latest update prm ship
 ```
 
 ## `/plan-prd <idea>`
@@ -51,10 +51,10 @@ branch and opens a **single PR** that summarises the work and carries
 `Closes #` for the epic and every built issue, so merging closes them all. Pass
 `--merge` to merge automatically (and close any squash-merge stragglers).
 On hosts that expose native goals to skills, `/ship` keeps the root orchestration
-running against an explicit completion condition and emits a compact checkpoint
-after every dependency wave. Pass `--watch` (or ask it to babysit the PR) to use
-task-scoped scheduled follow-ups for pending CI and review state; loops are never
-used to replay the build workflow itself.
+running against an explicit completion condition. It minimizes orchestration
+overhead, verifies the integrated result once, opens the PR immediately, and
+does not wait for CI or reviews. With `--merge`, it attempts the merge at once
+and only synchronizes the branch when GitHub reports conflicts.
 
 ## `/grill <plan or design>`
 
@@ -68,10 +68,10 @@ front of `/plan-prd`.
 ## `/prm`
 
 Takes completed work in the current checkout all the way through a merged pull
-request. It scopes the intended diff, runs the repository's checks, commits and
-pushes a feature branch, opens or resumes one PR against `main`, waits for its
-required checks and review state, merges it, and refreshes the local `main`.
-Every step is resumable, and unrelated changes are never swept into the PR.
+request. It assumes the work is already verified, commits and pushes it when
+needed, opens or resumes one PR against `main`, and attempts the merge
+immediately. It does not rerun verification or wait for CI and reviews; it only
+synchronizes with `main` when GitHub reports a conflict.
 
 ## `/setup-reissui-skills`
 
