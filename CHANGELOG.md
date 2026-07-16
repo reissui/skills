@@ -1,5 +1,24 @@
 # reissui-skills
 
+## 0.5.0
+
+### Minor Changes
+
+- 55e611c: Add the portable `/prm` skill for turning completed local work into a verified
+  pull request and merging it into `main`.
+- 953a9e2: Add the lean `/fix` skill for implementing one small task, running focused
+  verification, and taking it straight through a pull request and immediate merge.
+
+### Patch Changes
+
+- 15bb2b5: Simplify `/prm` to open and merge pull requests immediately without rerunning
+  verification or waiting for checks, resolving merge conflicts only when needed.
+- 15bb2b5: Streamline `/ship` around native goal continuation, parallel builds, a single
+  integration verification pass, one pull request, and immediate merge attempts
+  without CI watch loops.
+- fad0765: Update `/ship` to have the root agent prepare issue worktrees and delegate
+  parallel-safe issues in concurrency-sized batches to leaf subagents.
+
 ## 0.4.0
 
 ### Minor Changes
