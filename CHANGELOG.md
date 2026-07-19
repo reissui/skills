@@ -1,5 +1,12 @@
 # reissui-skills
 
+## 0.6.0
+
+### Minor Changes
+
+- c577363: Add the `/no-mistakes` skill for driving the no-mistakes validation pipeline
+  through review, test, lint, documentation, pull request, and CI gates.
+
 ## 0.5.0
 
 ### Minor Changes
