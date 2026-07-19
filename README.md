@@ -13,6 +13,7 @@ build it in another.
 /grill <plan>     → get relentlessly interviewed until the plan is watertight
 /fix <small task> → implement directly → focused check → merged PR
 /prm              → completed local work → verified PR → merge into main
+/no-mistakes      → review + test + lint + docs + PR + CI validation gate
 ```
 
 ## Install
@@ -28,7 +29,7 @@ GitHub remote + `gh` auth and agrees the label set `/plan-prd` and `/ship` use.
 Refresh an existing install after a release with:
 
 ```sh
-npx skills@latest update fix prm ship
+npx skills@latest update fix no-mistakes prm ship
 ```
 
 ## `/plan-prd <idea>`
@@ -80,6 +81,13 @@ request. It assumes the work is already verified, commits and pushes it when
 needed, opens or resumes one PR against `main`, and attempts the merge
 immediately. It does not rerun verification or wait for CI and reviews; it only
 synchronizes with `main` when GitHub reports a conflict.
+
+## `/no-mistakes`
+
+Drives the locally installed `no-mistakes` validation pipeline from intent
+through review, tests, documentation, lint, push, pull request, and CI. It can
+validate already committed work or complete a requested task first, then walks
+each decision gate until the run reaches a terminal outcome.
 
 ## `/setup-reissui-skills`
 
