@@ -28,7 +28,7 @@ subagents. If native goals are unavailable, continue normally.
 - For an epic, read the epic and its referenced children. For an explicit issue
   list, read exactly those issues.
 - Extract only what is needed to build them: dependencies, files, acceptance
-  criteria, and verification commands.
+  criteria, verification commands, and `Difficulty` metadata.
 - Confirm the working tree is safe, then create or reuse one integration branch
   named `build/prd-<E>` or `build/issues-<first>-<last>`. Reuse any existing PR
   for that branch.
@@ -44,10 +44,31 @@ git worktree before delegation. Use a deterministic `build/issue-<n>` branch
 and pass the absolute worktree path to that issue's subagent. Each subagent is a
 leaf responsible for exactly one issue and must not spawn further agents.
 
-Submit every parallel-safe issue in the wave through one batch delegation call,
-up to the host's configured concurrency limit. If a wave exceeds that limit,
-process it in maximum-sized batches rather than serializing the whole wave. Do
-not dispatch parallel-safe issues one-by-one when batch delegation is available.
+Route each issue from its `Difficulty` line and explicitly pass both overrides
+when spawning its subagent:
+
+- `Difficulty: trivial` → model `gpt-5.6-terra`, reasoning effort `low`.
+- `Difficulty: standard` → model `gpt-5.6-terra`, reasoning effort `medium`.
+- `Difficulty: complex` → model `gpt-5.6-sol`, reasoning effort `high`.
+
+If a model change requires a fresh or bounded context fork, use one. Make every
+delegation prompt self-contained with the complete issue body, absolute
+worktree path, acceptance criteria, verification command, and requirement to
+commit the finished work. Do not open user-owned Codex tasks or windows; keep
+all builders as subagents inside this `/ship` run.
+
+Submit every parallel-safe issue in the wave through batch delegation calls, up
+to the host's configured concurrency limit. Use one mixed-model batch when the
+host supports per-agent overrides in a batch. Otherwise, divide the wave into
+model-homogeneous batches and keep the maximum safe concurrency without
+violating dependencies or file-scope serialization. If a wave exceeds the
+limit, process it in maximum-sized batches rather than serializing the whole
+wave. Do not dispatch parallel-safe issues one-by-one when batch delegation is
+available.
+
+If a requested model or per-agent override is unavailable, continue with the
+best available model only when safe. Record the fallback and report it once in
+the final result; never claim that the requested routing succeeded.
 
 Give each subagent exactly one issue: implement the acceptance criteria, add the
 requested test, run the issue's verification when the implementation is ready,

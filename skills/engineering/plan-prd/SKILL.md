@@ -99,11 +99,25 @@ contain, in this order:
      whole epic. Disjoint `Touches` sets across issues are what let `/ship` run
      them in parallel.
    - `Difficulty:` — one of `trivial | standard | complex`.
+     - `trivial` — small, localized, mechanical work following an established
+       pattern. It needs minimal judgment, has narrow file scope, and has
+       straightforward testing.
+     - `standard` — normal feature or bug-fix work within a contained subsystem.
+       It may touch several related files and require ordinary implementation
+       reasoning, but all design decisions are resolved.
+     - `complex` — cross-cutting, architecturally sensitive, migration-related,
+       concurrency-sensitive, security-sensitive, performance-sensitive,
+       compatibility-sensitive, or otherwise high-risk work requiring deeper
+       reasoning and validation.
+
+Classify difficulty by implementation risk and required reasoning, not merely
+by the number of lines changed.
 
 **Close every epic with an acceptance issue.** The final child (after all others
 in its `Depends-on`) re-runs the epic's user stories end-to-end against the
 integration branch and confirms the epic-level verification passes with zero
-manual fixes.
+manual fixes. Always classify this final epic acceptance issue as `complex`
+because it validates the complete integration and all user stories.
 
 ## Step 4 — The executability test (apply to EVERY issue)
 
@@ -119,10 +133,12 @@ Score each issue against this checklist; every one must be true:
 `one-concern`, `files-enumerated`, `acceptance-criteria-testable`,
 `verification-command` (exactly one, concrete), `metadata-block` (all three
 lines in the exact shapes; `Touches` non-empty; `Difficulty` in the enum),
-`no-open-decisions`, `self-contained` (needs nothing beyond the issue body + the
-repo). Fix any failure in one pass, here, before showing the owner. Emit a
-compact per-issue pass/fail matrix into the transcript so goal completion can
-be evaluated from explicit evidence rather than an unsupported claim.
+`difficulty-rubric` (classification matches the Step 3 risk-and-reasoning
+rubric; the final epic acceptance issue is `complex`), `no-open-decisions`,
+`self-contained` (needs nothing beyond the issue body + the repo). Fix any
+failure in one pass, here, before showing the owner. Emit a compact per-issue
+pass/fail matrix into the transcript so goal completion can be evaluated from
+explicit evidence rather than an unsupported claim.
 
 ## Step 6 — Gate (default on; skippable)
 
