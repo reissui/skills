@@ -1,5 +1,17 @@
 # reissui-skills
 
+## 0.6.0
+
+### Minor Changes
+
+- c577363: Add the `/no-mistakes` skill for driving the no-mistakes validation pipeline
+  through review, test, lint, documentation, pull request, and CI gates.
+
+### Patch Changes
+
+- bae4b53: Classify `/plan-prd` child issues by implementation risk and route `/ship`
+  builders to explicit Codex models and reasoning efforts from that difficulty.
+
 ## 0.5.0
 
 ### Minor Changes
