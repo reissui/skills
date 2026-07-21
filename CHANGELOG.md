@@ -1,5 +1,12 @@
 # reissui-skills
 
+## 0.6.1
+
+### Patch Changes
+
+- de980b2: Let the host choose `/ship` builder models by removing explicit model and
+  reasoning-effort routing from the skill.
+
 ## 0.6.0
 
 ### Minor Changes
