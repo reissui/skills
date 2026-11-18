@@ -1,21 +1,11 @@
-# reissui/skills — repo instructions
+# reissui/skills
 
-This repo distributes coding-agent skills. The primary artifacts are the
-Markdown skills under `skills/engineering/<name>/SKILL.md` (one directory per
-skill, grouped by category); the Go code under `go/` is the parked clex
-implementation and is not part of the skill runtime.
+Reiss's personal agent skills. One directory per skill at `skills/<name>/SKILL.md`, flat, Markdown only apart from small dependency-free scripts.
 
-- **Skills are instruction-only.** They must stay portable across Claude Code and
-  Codex: drive subagents in prose, use `gh` and `git` directly, never depend on
-  one harness's machine API or on any persisted repo state. GitHub issues are the
-  only store.
-- **Editing skills:** every `skills/**/SKILL.md` needs YAML frontmatter with
-  `name` (equal to its directory) and `description`. The `description` value is
-  parsed by a strict YAML library — keep it free of a bare `: ` (colon-space) or
-  the installer silently drops the skill. Run `npm run validate` to check; CI
-  runs it too.
-- **The parked Go code** builds from `go/`: `cd go && go build ./... && go vet
-  ./... && go test ./...`. Do not rewrite its module path.
-- **Releases** use changesets: `npm run changeset` to record a change; the
-  release workflow versions and tags on merge to `main`.
-- **Design + plans** live in `docs/superpowers/`.
+- **Frontmatter:** every `SKILL.md` needs `name` (equal to its directory) and `description`. Keep the description free of a bare `: ` (colon then space). The installer's YAML parser drops the skill silently if it finds one.
+- **Rules are decisions.** Write each rule with a concrete value and, where it helps, the reason. "Weight 500 is the default" is a rule. "Use good typography" is not.
+- **Taste comes from evidence.** A rule goes into `design-engineer` because Reiss asked for it, corrected an agent for it, or ships it in his own code. Unsettled questions go in that skill's "Open defaults" table with a fallback. Do not fill gaps with generic design advice.
+- **Client brand values stay out.** Colours and fonts that belong to a client project are not personal defaults.
+- **The skills follow their own rules.** No em dashes, sentence case headings, no filler.
+- **New slop pattern:** add an entry to `skills/remove-slop/CATALOG.md` (signal, fix, source), a row in the `SKILL.md` table, and a rule in `scan.mjs` if it can be detected mechanically.
+- **Check before finishing:** `node skills/remove-slop/scan.mjs skills README.md` should report only lines that quote a pattern as an example.

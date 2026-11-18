@@ -1,20 +1,2 @@
-# Build artifacts
-/go/bin/
-/go/dist/
-
-# Go
-*.test
-*.out
-coverage.txt
-
-# OS
 .DS_Store
-
-# Local runtime state (never committed)
-/.clex/
-
-# Working scratch from the clex build (never committed)
-/scratch/
-
-# Node (skills tooling: validator, changesets)
-/node_modules/
+node_modules/

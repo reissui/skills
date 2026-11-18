@@ -1,5 +1,0 @@
-{
-  "repo": "reissui/skills",
-  "targets": ["claude", "codex"],
-  "skillsDir": "skills"
-}
