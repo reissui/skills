@@ -11,6 +11,7 @@ Two files sit beside this one. Read them when the work calls for it:
 
 - [MOTION.md](MOTION.md) before writing any animation or transition.
 - [GESTURES.md](GESTURES.md) before building anything that is dragged, swiped, flung or held.
+- [REFERENCES.md](REFERENCES.md) when the direction is open. It lists the sites Reiss likes, measured, with what to take from each and where each loses to a rule here.
 
 ## Precedence
 
@@ -257,15 +258,17 @@ Report findings as one table, one row per issue:
 
 ## Open defaults
 
-These are not settled. Until Reiss fills them in, use the fallback given and say that you did.
+These are not settled. Until Reiss fills them in, use the fallback given and say that you did. The third column is what a site in [REFERENCES.md](REFERENCES.md) does. It is evidence for Reiss to choose from, not a value to apply.
 
-| Question | Fallback |
-| --- | --- |
-| Mono face for meta | Geist Mono |
-| Base radius for shadcn (`--radius`) | `0.75rem` |
-| Spelling | British (colour, grey, organise) |
-| Button hover | Opacity to 0.85 over 220ms |
-| Control height with a pointer | 32px |
-| Icon stroke | lucide at 1.5 |
-| First tooltip delay | 400ms |
-| Display sizes on marketing pages | The fixed 28, 32 and 48px steps, no fluid `clamp()` |
+| Question | Fallback | Seen on a reference |
+| --- | --- | --- |
+| Mono face for meta | Geist Mono | design.how uses the system mono stack |
+| Base radius for shadcn (`--radius`) | `0.75rem` | design.how uses 6px on controls |
+| Spelling | British (colour, grey, organise) | |
+| Button hover | Opacity to 0.85 over 220ms | design.how steps `background-color` over 100ms `ease-out` |
+| Control height with a pointer | 32px | design.how uses 36px |
+| Icon stroke | lucide at 1.5 | |
+| First tooltip delay | 400ms | |
+| Display sizes on marketing pages | The fixed 28, 32 and 48px steps, no fluid `clamp()` | design.how tops out at a fixed 32px, no `clamp()` |
+| Interface size | 13px | design.how uses 14px text and 15px controls |
+| Content column on a docs or content site | Reading column 620 to 640px, and fill the horizontal space | design.how centres a 576px column |
